@@ -1,0 +1,119 @@
+# OmniTab — AI Context File
+
+> This file captures the full project context so any AI agent (Claude, Codex, Gemini)
+> can pick up development without lengthy onboarding.
+
+## What is OmniTab?
+
+A PWA guitar companion — our own Songsterr + Ultimate Guitar, but better and free.
+Built for Samsung A52s + iRig Micro Amp. Works 100% offline after first load.
+
+## URLs
+
+| Service | URL |
+|---------|-----|
+| Frontend (Vercel) | https://omnitab-henna.vercel.app |
+| GitHub | https://github.com/horizonmoine/omnitab |
+| Demucs Backend (HF Space) | https://horizonmoine30-omnitab-demucs.hf.space |
+| Vercel scope | markos-projects-92eb7d30 |
+| HF username | horizonmoine30 |
+| GitHub username | horizonmoine |
+
+## Stack
+
+- **Frontend:** Vite 6 + React 19 + TypeScript 5.6 (strict) + Tailwind CSS 3.4
+- **Tab rendering:** AlphaTab 1.5.0 (CDN: jsdelivr)
+- **AI transcription:** @spotify/basic-pitch 1.0.1 (TF.js in Web Worker)
+- **Stem separation:** Demucs via FastAPI on HuggingFace Spaces (htdemucs, CPU)
+- **Storage:** IndexedDB via Dexie v2 (tables: library, settings, recordings, stems)
+- **PWA:** vite-plugin-pwa + Workbox (autoUpdate, CacheFirst for CDN)
+- **Deploy:** Vercel (auto-deploy on push to master) + Edge Function CORS proxy
+- **CI:** GitHub Actions (typecheck → test → build on Node 20)
+- **Music theory:** tonal 6.3.0
+- **Tuner:** pitchy 4.1.0
+
+## Architecture
+
+```
+src/
+├── App.tsx              # Main shell — switch-based routing (no React Router)
+├── main.tsx             # Entry: PWA registration + basic-pitch model prefetch
+├── components/          # 14 page components
+│   ├── TabViewer.tsx    # AlphaTab Pro (tracks, loop, count-in, zoom, speed)
+│   ├── TabSearch.tsx    # Songsterr search → open on Songsterr
+│   ├── Library.tsx      # IndexedDB library (search, sort, drag&drop, favorites)
+│   ├── Tuner.tsx        # Real-time pitch detection
+│   ├── Metronome.tsx    # Web Audio look-ahead scheduler
+│   ├── AmpSim.tsx       # Drive → 3-band EQ → master chain
+│   ├── Recorder.tsx     # MediaRecorder + waveform + speed control
+│   ├── Transcriber.tsx  # basic-pitch → Viterbi → alphaTex pipeline
+│   ├── StemPlayer.tsx   # Offline mixer (mute/solo/volume per stem)
+│   ├── ChordLibrary.tsx # SVG chord diagrams (12 roots × 12 qualities)
+│   ├── SpeedTrainer.tsx # Progressive tempo practice
+│   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights
+│   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
+│   └── ErrorBoundary.tsx
+├── lib/                 # Core logic (no React)
+│   ├── types.ts         # DetectedNote, TabNote, Transcription, SongsterrHit...
+│   ├── db.ts            # Dexie schema v2 + CRUD helpers
+│   ├── settings.ts      # Persistent settings with pub/sub
+│   ├── audio-engine.ts  # Shared AudioContext + AmpSim chain + WAV encoding
+│   ├── basic-pitch.ts   # Persistent worker facade with idle timeout
+│   ├── midi-to-tab.ts   # Viterbi algorithm for fret placement
+│   ├── chord-melody.ts  # Melody/bass extraction
+│   ├── alpha-tab-converter.ts  # Transcription → alphaTex
+│   ├── guitarTunings.ts # Tuning definitions
+│   ├── pitch-detection.ts
+│   ├── tempo-detection.ts
+│   ├── songsterr-api.ts # Songsterr /api/songs proxy client
+│   └── demucs-client.ts # HF Space FastAPI client
+├── workers/
+│   └── basic-pitch.worker.ts  # TF.js inference (module cached)
+api/
+└── songsterr.ts         # Vercel Edge Function CORS proxy
+hf-space/
+├── Dockerfile           # python:3.10-slim + torch 2.5.1 CPU
+├── app.py               # FastAPI + Demucs htdemucs
+└── requirements.txt
+```
+
+## Conventions
+
+- **UI language:** French
+- **Code language:** English
+- **Theme:** Dark "amp" palette — classes: amp-bg, amp-panel, amp-accent (#f59e0b orange)
+- **Adding a new page:** 3 files to touch:
+  1. New component in `src/components/`
+  2. Add to `Page` type + `NAV` array in `Layout.tsx`
+  3. Add `case` in `App.tsx` renderPage switch
+- **Commit style:** `type(scope): description` in English
+- **No React Router** — simple state-based tab switching
+- **No external component libraries** — pure Tailwind
+- **Minimize new deps** — tonal is already installed for music theory
+
+## Commands
+
+```bash
+npm run build        # tsc -b && vite build
+npx vitest run       # run 47 tests
+npx tsc --noEmit     # typecheck only
+npm run dev          # dev server on :5173
+git push origin master  # auto-deploys to Vercel
+```
+
+## Known Issues / Tech Debt
+
+1. AlphaTab chunk is 1.2 MB — could benefit from dynamic import code splitting
+2. TabSearch `onTabLoaded` prop is defined but unused (Songsterr GP downloads no longer public)
+3. chord-melody.ts:174 has a TODO for bass rhythm enhancement
+4. HF Space free tier sleeps after ~48h inactivity (first request takes 30-60s to wake)
+
+## Songsterr API (April 2026)
+
+Old endpoint (`/a/ra/songs.json`) is DEAD (404). New endpoints:
+- Search: `GET https://www.songsterr.com/api/songs?pattern=...&size=40`
+- Song detail: `GET https://www.songsterr.com/api/song/{songId}`
+- Revisions: `GET https://www.songsterr.com/api/meta/{songId}/revisions`
+- GP file downloads: NO LONGER PUBLIC — use player page instead
+
+Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.

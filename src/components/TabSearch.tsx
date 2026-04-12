@@ -13,7 +13,7 @@ interface TabSearchProps {
   onTabLoaded?: (data: ArrayBuffer, title: string) => void;
 }
 
-export function TabSearch(_props: TabSearchProps) {
+export function TabSearch({ onTabLoaded: _onTabLoaded }: TabSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
