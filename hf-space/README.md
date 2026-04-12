@@ -2,7 +2,7 @@
 title: OmniTab Demucs
 emoji: 🎸
 colorFrom: yellow
-colorTo: orange
+colorTo: yellow
 sdk: docker
 app_port: 7860
 pinned: false
@@ -10,7 +10,7 @@ pinned: false
 
 # OmniTab Demucs
 
-Stem-separation backend for [OmniTab](https://github.com/YOUR_USER/omnitab), a PWA guitar companion.
+Stem-separation backend for [OmniTab](https://github.com/horizonmoine/omnitab), a PWA guitar companion.
 
 Powered by [Meta's Demucs](https://github.com/facebookresearch/demucs) (Hybrid Transformer model).
 
