@@ -20,6 +20,8 @@ import { Tuner } from './components/Tuner';
 import { AmpSim } from './components/AmpSim';
 import { Recorder } from './components/Recorder';
 import { Transcriber } from './components/Transcriber';
+import { Metronome } from './components/Metronome';
+import { StemPlayer } from './components/StemPlayer';
 import { Settings } from './components/Settings';
 
 interface PendingTab {
@@ -85,6 +87,10 @@ export function App() {
             onTabReady={(tex, title) => openInViewer(tex, title)}
           />
         );
+      case 'metronome':
+        return <Metronome />;
+      case 'stems':
+        return <StemPlayer />;
       case 'settings':
         return <Settings />;
       default:

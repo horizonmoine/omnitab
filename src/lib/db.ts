@@ -5,6 +5,7 @@
  *   - library: tabs (GP files, MusicXML, alphaTex) with metadata
  *   - settings: user preferences (A4 ref, default tuning, cost weights)
  *   - recordings: user recordings (WAV blobs) before transcription
+ *   - stems: Demucs-separated audio stems cached for offline playback
  */
 
 import Dexie, { type EntityTable } from 'dexie';
@@ -23,10 +24,27 @@ export interface Recording {
   createdAt: number;
 }
 
+export type StemType = 'vocals' | 'drums' | 'bass' | 'guitar' | 'other';
+
+export interface SavedStem {
+  id?: number;
+  /** Human-readable song name, e.g. "Metallica – Master of Puppets". */
+  songTitle: string;
+  /** Which stem this is. */
+  stemType: StemType;
+  /** Raw WAV Blob returned by Demucs. */
+  blob: Blob;
+  /** Duration in seconds. */
+  durationSeconds: number;
+  /** Unix timestamp. */
+  createdAt: number;
+}
+
 class OmniTabDB extends Dexie {
   library!: EntityTable<LibraryTab, 'id'>;
   settings!: EntityTable<Setting, 'key'>;
   recordings!: EntityTable<Recording, 'id'>;
+  stems!: EntityTable<SavedStem, 'id'>;
 
   constructor() {
     super('omnitab');
@@ -34,6 +52,12 @@ class OmniTabDB extends Dexie {
       library: '++id, title, artist, kind, addedAt, favorite, *tags',
       settings: 'key',
       recordings: '++id, createdAt',
+    });
+    this.version(2).stores({
+      library: '++id, title, artist, kind, addedAt, favorite, *tags',
+      settings: 'key',
+      recordings: '++id, createdAt',
+      stems: '++id, songTitle, stemType, createdAt',
     });
   }
 }
@@ -111,4 +135,40 @@ export async function getAllRecordings(): Promise<Recording[]> {
 
 export async function deleteRecording(id: number): Promise<void> {
   await db.recordings.delete(id);
+}
+
+// ───── Stem helpers (offline Demucs cache) ─────
+
+export async function saveStem(
+  songTitle: string,
+  stemType: StemType,
+  blob: Blob,
+  durationSeconds: number,
+): Promise<number> {
+  const id = await db.stems.add({
+    songTitle,
+    stemType,
+    blob,
+    durationSeconds,
+    createdAt: Date.now(),
+  });
+  return id as number;
+}
+
+export async function getStemsForSong(
+  songTitle: string,
+): Promise<SavedStem[]> {
+  return db.stems.where('songTitle').equals(songTitle).toArray();
+}
+
+export async function getAllStems(): Promise<SavedStem[]> {
+  return db.stems.orderBy('createdAt').reverse().toArray();
+}
+
+export async function deleteStem(id: number): Promise<void> {
+  await db.stems.delete(id);
+}
+
+export async function deleteStemsForSong(songTitle: string): Promise<void> {
+  await db.stems.where('songTitle').equals(songTitle).delete();
 }

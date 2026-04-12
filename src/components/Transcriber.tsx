@@ -27,7 +27,7 @@ import { decodeAndResample } from '../lib/audio-engine';
 import { assignViterbi } from '../lib/midi-to-tab';
 import { transcriptionToAlphaTex } from '../lib/alpha-tab-converter';
 import { TUNINGS, applyCapo } from '../lib/guitarTunings';
-import { addTabToLibrary } from '../lib/db';
+import { addTabToLibrary, saveStem } from '../lib/db';
 import {
   isBackendAvailable,
   separateStem,
@@ -94,6 +94,9 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
   const [transcription, setTranscription] = useState<Transcription | null>(
     null,
   );
+  // Stem separation state
+  const [separating, setSeparating] = useState(false);
+  const [separateProgress, setSeparateProgress] = useState('');
 
   // Au montage ET à chaque changement d'URL backend (Réglages) : re-ping.
   // Ça permet à l'utilisateur de changer `demucsUrl` dans la page Réglages
@@ -265,6 +268,31 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
       favorite: false,
       tags: ['ai-transcribed', modeTag, useDemucs ? 'demucs' : 'raw'],
     });
+  };
+
+  /** Separate all 4 stems via Demucs and save to IndexedDB for offline playback. */
+  const separateAllStems = async () => {
+    if (!file || !backend) return;
+    setSeparating(true);
+    setSeparateProgress('');
+    const songTitle = label || 'Sans titre';
+    const stemTypes = ['vocals', 'drums', 'bass', 'other'] as const;
+    try {
+      for (let i = 0; i < stemTypes.length; i++) {
+        const stem = stemTypes[i];
+        setSeparateProgress(`Séparation ${stem} (${i + 1}/${stemTypes.length})...`);
+        const blob = await separateStem(file, stem);
+        // Estimate duration from blob size (WAV: 16-bit mono 22050Hz ≈ 44KB/s).
+        const durationEstimate = blob.size / 44100;
+        await saveStem(songTitle, stem, blob, durationEstimate);
+      }
+      setSeparateProgress(`✅ 4 stems sauvegardés pour "${songTitle}". Va dans Stems pour mixer.`);
+    } catch (err) {
+      console.error(err);
+      setSeparateProgress(`❌ Erreur : ${err instanceof Error ? err.message : 'échec de la séparation'}`);
+    } finally {
+      setSeparating(false);
+    }
   };
 
   const activeMode = MODES.find((m) => m.id === mode)!;
@@ -458,7 +486,7 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
 
       {/* Résultat */}
       {resultTex && transcription && (
-        <section className="max-w-md p-4 bg-amp-panel border border-amp-border rounded">
+        <section className="max-w-md p-4 bg-amp-panel border border-amp-border rounded mb-6">
           <h3 className="font-bold text-amp-success mb-2">
             ✅ Transcription prête
           </h3>
@@ -482,6 +510,27 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
               💾 Sauvegarder dans la bibliothèque
             </button>
           </div>
+        </section>
+      )}
+
+      {/* Stem separation (offline cache) */}
+      {file && backend && !running && (
+        <section className="max-w-md p-4 bg-amp-panel border border-amp-border rounded">
+          <h3 className="font-bold mb-2">🎛️ Séparer toutes les pistes</h3>
+          <p className="text-xs text-amp-muted mb-3">
+            Isole voix, batterie, basse et autres via Demucs. Les stems
+            sont sauvegardés hors-ligne dans l'onglet Stems.
+          </p>
+          <button
+            onClick={separateAllStems}
+            disabled={separating}
+            className="bg-amp-panel-2 hover:bg-amp-border disabled:bg-amp-muted text-amp-text font-bold px-4 py-2 rounded text-sm transition-colors"
+          >
+            {separating ? '⏳ Séparation en cours…' : '🎛️ Séparer les 4 stems'}
+          </button>
+          {separateProgress && (
+            <p className="mt-2 text-sm text-amp-muted">{separateProgress}</p>
+          )}
         </section>
       )}
     </div>

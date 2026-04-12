@@ -16,6 +16,8 @@ export type Page =
   | 'amp'
   | 'record'
   | 'transcribe'
+  | 'metronome'
+  | 'stems'
   | 'settings';
 
 interface NavItem {
@@ -29,9 +31,11 @@ const NAV: NavItem[] = [
   { id: 'library', label: 'Bibliothèque', icon: '📚' },
   { id: 'viewer', label: 'Lecteur', icon: '🎼' },
   { id: 'tuner', label: 'Accordeur', icon: '🎯' },
+  { id: 'metronome', label: 'Métronome', icon: '🥁' },
   { id: 'amp', label: 'Ampli', icon: '🎚️' },
   { id: 'record', label: 'Enregistrer', icon: '🎙️' },
   { id: 'transcribe', label: 'Transcrire', icon: '🤖' },
+  { id: 'stems', label: 'Stems', icon: '🎛️' },
   { id: 'settings', label: 'Réglages', icon: '⚙️' },
 ];
 
