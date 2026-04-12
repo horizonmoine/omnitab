@@ -1,11 +1,11 @@
 # OmniTab Demucs HF Space — Python dependencies
-# torch + torchaudio are installed separately (CPU-only) in the Dockerfile.
+# torch 2.5.1 + torchaudio 2.5.1 CPU are installed in Dockerfile.
 
 fastapi>=0.110,<1.0
 uvicorn[standard]>=0.27,<1.0
-python-multipart>=0.0.9          # required for FastAPI file uploads
+python-multipart>=0.0.9
 demucs>=4.0.1
 soundfile>=0.12.1
-numpy>=1.24,<2.0                  # demucs is not yet numpy 2.x compatible
+numpy>=1.24,<2.0
 einops>=0.7.0
-diffq>=0.2.4                      # demucs quantization helper
+diffq>=0.2.4
