@@ -1,0 +1,54 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────────
+ * Global tweaks for the dark amp theme + mobile UX.
+ * Tailwind handles the rest via tailwind.config.ts (amp-* color tokens).
+ * ───────────────────────────────────────────────────────────────────── */
+
+@layer base {
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  body {
+    -webkit-tap-highlight-color: transparent;
+    overscroll-behavior: none;
+    font-feature-settings: 'cv11', 'ss01';
+  }
+
+  /* Hide ugly default focus rings on touch but keep them on keyboard */
+  *:focus-visible {
+    @apply outline-none ring-2 ring-amp-accent;
+  }
+}
+
+@layer components {
+  /* AlphaTab renders directly into a child div — give it a comfy
+   * page-style background so the SVG looks like real sheet music. */
+  .at-root,
+  .at-surface {
+    background: #fdfdf7;
+  }
+}
+
+/* Disable the iOS pull-to-refresh gesture so the recorder doesn't reload
+ * mid-take. Equivalent to overscroll-behavior:contain on the body. */
+@supports (-webkit-touch-callout: none) {
+  body {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+/* Range-input thumb tweak: bigger thumb on touch devices for the amp knobs. */
+@media (pointer: coarse) {
+  input[type='range'] {
+    @apply h-3;
+  }
+}

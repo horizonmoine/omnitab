@@ -1,0 +1,58 @@
+name: CI
+
+# Trigger on every push and PR against main. Forks get automatic runs
+# via pull_request, so we don't need to mirror on pull_request_target.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# If a new commit lands on the same ref, cancel the older run. Saves CI
+# minutes when rebasing/force-pushing a PR branch mid-review.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          # OmniTab targets Node 20+ (zlib.crc32 in generate-icons.mjs and
+          # native fetch in tests both require it). Pin to 20 LTS so CI is
+          # stable; bump in lockstep with local dev if you upgrade.
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        # `npm ci` respects package-lock.json exactly — never mutates it.
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test
+
+      - name: Build
+        # Vite's production build doubles as a lint: TS strict errors, unused
+        # plugin options, missing assets will all fail here. Upload the dist
+        # as an artifact so you can download and inspect it from the Actions
+        # UI without reproducing the build locally.
+        run: npm run build
+
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 7

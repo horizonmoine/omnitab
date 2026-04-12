@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="12" fill="#0a0a0a"/>
+  <!-- 6 guitar strings -->
+  <line x1="8" y1="16" x2="56" y2="16" stroke="#f59e0b" stroke-width="1"/>
+  <line x1="8" y1="22" x2="56" y2="22" stroke="#f59e0b" stroke-width="1.2"/>
+  <line x1="8" y1="28" x2="56" y2="28" stroke="#f59e0b" stroke-width="1.4"/>
+  <line x1="8" y1="36" x2="56" y2="36" stroke="#f59e0b" stroke-width="1.6"/>
+  <line x1="8" y1="44" x2="56" y2="44" stroke="#f59e0b" stroke-width="1.8"/>
+  <line x1="8" y1="52" x2="56" y2="52" stroke="#f59e0b" stroke-width="2"/>
+  <!-- fret marker -->
+  <circle cx="32" cy="34" r="3" fill="#fbbf24"/>
+</svg>

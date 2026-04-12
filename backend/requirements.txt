@@ -1,0 +1,19 @@
+# OmniTab Demucs backend
+#
+# Tested on Python 3.10–3.12. For GPU acceleration on NVIDIA, install
+# the CUDA build of torch FIRST from https://pytorch.org/get-started/locally/
+# (e.g. `pip install torch --index-url https://download.pytorch.org/whl/cu121`)
+# then run `pip install -r requirements.txt`.
+#
+# CPU-only setups still work, just expect 5–10× slower separation.
+
+fastapi>=0.110,<1.0
+uvicorn[standard]>=0.27,<1.0
+python-multipart>=0.0.9          # required for FastAPI file uploads
+demucs>=4.0.1
+torch>=2.1                        # leave version flexible for CUDA installs
+torchaudio>=2.1
+soundfile>=0.12.1
+numpy>=1.24,<2.0                  # demucs is not yet numpy 2.x compatible
+einops>=0.7.0
+diffq>=0.2.4                      # demucs quantization helper
