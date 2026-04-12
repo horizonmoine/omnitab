@@ -12,11 +12,23 @@
 import type { SongsterrHit } from './types';
 
 const DIRECT_BASE = 'https://www.songsterr.com/a/ra';
-const PROXY_BASE =
-  (import.meta.env.VITE_SONGSTERR_PROXY as string | undefined) ?? '';
+
+/**
+ * Resolve the proxy base URL. In production on Vercel, the Edge Function at
+ * /api/songsterr handles CORS proxying automatically (same-origin, no config
+ * needed). In dev, direct fetch usually works, but users can override via
+ * VITE_SONGSTERR_PROXY in .env.local if their browser blocks it.
+ */
+function getProxyUrl(path: string): string {
+  const override = (import.meta.env.VITE_SONGSTERR_PROXY as string | undefined) ?? '';
+  if (override) return `${override}${path}`;
+  // In production: use the Vercel Edge Function on the same origin.
+  if (!import.meta.env.DEV) return `/api/songsterr?path=${encodeURIComponent(path)}`;
+  return '';
+}
 
 async function fetchJson<T>(path: string): Promise<T> {
-  // Try direct fetch first.
+  // Try direct fetch first (works in dev, blocked by CORS in prod).
   try {
     const res = await fetch(`${DIRECT_BASE}${path}`, {
       headers: { Accept: 'application/json' },
@@ -24,14 +36,14 @@ async function fetchJson<T>(path: string): Promise<T> {
     if (res.ok) return (await res.json()) as T;
     throw new Error(`HTTP ${res.status}`);
   } catch (err) {
-    if (!PROXY_BASE) {
-      console.warn(
-        '[songsterr] direct fetch failed, no proxy configured. Set VITE_SONGSTERR_PROXY in .env.local.',
-        err,
+    const proxyUrl = getProxyUrl(path);
+    if (!proxyUrl) {
+      console.warn('[songsterr] direct fetch failed, no proxy available.', err);
+      throw new Error(
+        'Erreur de recherche. Songsterr est bloqué par CORS.',
       );
-      throw err;
     }
-    const res = await fetch(`${PROXY_BASE}${path}`, {
+    const res = await fetch(proxyUrl, {
       headers: { Accept: 'application/json' },
     });
     if (!res.ok) throw new Error(`Proxy HTTP ${res.status}`);
@@ -70,10 +82,7 @@ export async function resolveTabFileUrl(songId: number): Promise<string> {
 
 /** Fetch the raw binary contents of a Guitar Pro tab file from its URL. */
 export async function downloadTabFile(url: string): Promise<ArrayBuffer> {
-  // Some Songsterr CDN URLs may need the proxy too.
-  const tryUrls = PROXY_BASE
-    ? [url, `${PROXY_BASE}/proxy?url=${encodeURIComponent(url)}`]
-    : [url];
+  const tryUrls = [url];
   for (const u of tryUrls) {
     try {
       const res = await fetch(u);
