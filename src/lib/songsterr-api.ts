@@ -1,17 +1,17 @@
 /**
  * Songsterr public REST API client.
  *
- * The endpoint `https://www.songsterr.com/a/ra/songs.json?pattern=<query>`
- * returns a JSON array of matching songs without requiring an API key.
+ * Songsterr migrated from `/a/ra/songs.json` to `/api/songs` (Apr 2026).
+ * The response shape is identical — JSON array of song objects.
  *
- * ⚠ CORS NOTE: Browsers may block direct fetches to songsterr.com due to
- * same-origin restrictions. If that happens at runtime, the app falls back to
- * routing requests through a user-configurable proxy (see VITE_SONGSTERR_PROXY).
+ * ⚠ CORS NOTE: Browsers block direct fetches to songsterr.com.
+ * In production on Vercel the Edge Function at /api/songsterr proxies requests.
+ * In dev, users can set VITE_SONGSTERR_PROXY in .env.local.
  */
 
 import type { SongsterrHit } from './types';
 
-const DIRECT_BASE = 'https://www.songsterr.com/a/ra';
+const DIRECT_BASE = 'https://www.songsterr.com/api';
 
 /**
  * Resolve the proxy base URL. In production on Vercel, the Edge Function at
@@ -51,6 +51,14 @@ async function fetchJson<T>(path: string): Promise<T> {
   }
 }
 
+/** Raw shape returned by Songsterr's /api/songs endpoint. */
+interface SongsterrRaw {
+  songId: number;
+  artist: string;
+  title: string;
+  tracks?: Array<{ instrument: string; tuning?: number[] }>;
+}
+
 /** Search for songs matching a free-text query. */
 export async function searchSongsterr(
   pattern: string,
@@ -58,10 +66,16 @@ export async function searchSongsterr(
 ): Promise<SongsterrHit[]> {
   if (!pattern.trim()) return [];
   const q = encodeURIComponent(pattern.trim());
-  const hits = await fetchJson<SongsterrHit[]>(
-    `/songs.json?pattern=${q}&size=${size}`,
+  const raw = await fetchJson<SongsterrRaw[]>(
+    `/songs?pattern=${q}&size=${size}`,
   );
-  return hits;
+  // Normalize to our internal SongsterrHit shape.
+  return raw.map((r) => ({
+    id: r.songId,
+    title: r.title,
+    artist: { name: r.artist },
+    tracks: r.tracks?.map((t) => ({ instrument: t.instrument })),
+  }));
 }
 
 /**
@@ -70,30 +84,6 @@ export async function searchSongsterr(
  * The public Songsterr revision endpoint returns the latest revision which
  * contains a source URL pointing to a .gp / .gp5 / .gpx file on their CDN.
  */
-export async function resolveTabFileUrl(songId: number): Promise<string> {
-  const data = await fetchJson<{
-    source?: string;
-    attachmentUrl?: string;
-  }>(`/song/${songId}/revisions.json`);
-  const url = data.source ?? data.attachmentUrl;
-  if (!url) throw new Error('No tab file URL in revision response');
-  return url;
-}
-
-/** Fetch the raw binary contents of a Guitar Pro tab file from its URL. */
-export async function downloadTabFile(url: string): Promise<ArrayBuffer> {
-  const tryUrls = [url];
-  for (const u of tryUrls) {
-    try {
-      const res = await fetch(u);
-      if (res.ok) return await res.arrayBuffer();
-    } catch {
-      /* try next */
-    }
-  }
-  throw new Error(`Failed to download tab from ${url}`);
-}
-
 /**
  * Detect a Guitar Pro file's format from its first bytes.
  * Returns 'gp3' | 'gp4' | 'gp5' | 'gpx' | 'unknown'.
@@ -102,11 +92,7 @@ export function detectGpFormat(
   buf: ArrayBuffer,
 ): 'gp3' | 'gp4' | 'gp5' | 'gpx' | 'unknown' {
   const bytes = new Uint8Array(buf);
-  // GPX (Guitar Pro 6+) is a ZIP archive starting with "BCFZ" or "BCFS" inside
-  // a PK zip. We check the zip magic number PK\x03\x04.
   if (bytes[0] === 0x50 && bytes[1] === 0x4b) return 'gpx';
-  // GP3/4/5 start with a version string length byte then "FICHIER GUITAR PRO".
-  // Length byte is 0x14 (20) followed by the version text.
   const text = new TextDecoder('ascii').decode(bytes.slice(1, 31));
   if (text.startsWith('FICHIER GUITAR PRO v3')) return 'gp3';
   if (text.startsWith('FICHIER GUITAR PRO v4')) return 'gp4';

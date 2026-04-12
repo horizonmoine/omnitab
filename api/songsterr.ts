@@ -13,8 +13,8 @@
 
 export const config = { runtime: 'edge' };
 
-const SONGSTERR_BASE = 'https://www.songsterr.com/a/ra';
-const ALLOWED_PATHS = ['/songs.json', '/song/'];
+const SONGSTERR_BASE = 'https://www.songsterr.com/api';
+const ALLOWED_PATHS = ['/songs', '/song/', '/meta/'];
 
 export default async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);

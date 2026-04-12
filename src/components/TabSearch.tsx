@@ -6,24 +6,17 @@
  */
 
 import { useState } from 'react';
-import {
-  searchSongsterr,
-  resolveTabFileUrl,
-  downloadTabFile,
-  detectGpFormat,
-} from '../lib/songsterr-api';
-import { addTabToLibrary } from '../lib/db';
+import { searchSongsterr } from '../lib/songsterr-api';
 import type { SongsterrHit } from '../lib/types';
 
 interface TabSearchProps {
-  onTabLoaded: (data: ArrayBuffer, title: string) => void;
+  onTabLoaded?: (data: ArrayBuffer, title: string) => void;
 }
 
-export function TabSearch({ onTabLoaded }: TabSearchProps) {
+export function TabSearch(_props: TabSearchProps) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
@@ -37,38 +30,23 @@ export function TabSearch({ onTabLoaded }: TabSearchProps) {
       if (hits.length === 0) setError('Aucun résultat trouvé.');
     } catch (err) {
       console.error(err);
-      setError(
-        'Erreur de recherche. Songsterr peut être bloqué par CORS — ' +
-          'configure VITE_SONGSTERR_PROXY dans .env.local pour contourner.',
-      );
+      setError('Erreur de recherche. Vérifie ta connexion internet.');
     } finally {
       setIsSearching(false);
     }
   };
 
-  const handleDownload = async (hit: SongsterrHit) => {
-    setDownloadingId(hit.id);
-    setError(null);
-    try {
-      const url = await resolveTabFileUrl(hit.id);
-      const buffer = await downloadTabFile(url);
-      const format = detectGpFormat(buffer);
-      await addTabToLibrary({
-        title: hit.title,
-        artist: hit.artist.name,
-        kind: 'original',
-        format,
-        data: buffer,
-        favorite: false,
-        tags: [],
-      });
-      onTabLoaded(buffer, `${hit.artist.name} – ${hit.title}`);
-    } catch (err) {
-      console.error(err);
-      setError(`Échec du téléchargement de "${hit.title}".`);
-    } finally {
-      setDownloadingId(null);
-    }
+  /** Open the Songsterr interactive player in a new tab. */
+  const openOnSongsterr = (hit: SongsterrHit) => {
+    const slug = `${hit.artist.name}-${hit.title}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '');
+    window.open(
+      `https://www.songsterr.com/a/wsa/${slug}-tab-s${hit.id}`,
+      '_blank',
+      'noopener',
+    );
   };
 
   return (
@@ -122,11 +100,10 @@ export function TabSearch({ onTabLoaded }: TabSearchProps) {
               </div>
             </div>
             <button
-              onClick={() => handleDownload(hit)}
-              disabled={downloadingId === hit.id}
-              className="ml-3 bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-4 py-1.5 rounded text-sm transition-colors disabled:bg-amp-muted disabled:cursor-wait"
+              onClick={() => openOnSongsterr(hit)}
+              className="ml-3 bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-4 py-1.5 rounded text-sm transition-colors"
             >
-              {downloadingId === hit.id ? '⏳' : '📥 Télécharger'}
+              Ouvrir
             </button>
           </div>
         ))}
