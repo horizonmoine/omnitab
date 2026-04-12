@@ -18,6 +18,8 @@ export type Page =
   | 'transcribe'
   | 'metronome'
   | 'stems'
+  | 'chords'
+  | 'speed-trainer'
   | 'settings';
 
 interface NavItem {
@@ -36,6 +38,8 @@ const NAV: NavItem[] = [
   { id: 'record', label: 'Enregistrer', icon: '🎙️' },
   { id: 'transcribe', label: 'Transcrire', icon: '🤖' },
   { id: 'stems', label: 'Stems', icon: '🎛️' },
+  { id: 'chords', label: 'Accords', icon: '🎵' },
+  { id: 'speed-trainer', label: 'Speed Trainer', icon: '🏎️' },
   { id: 'settings', label: 'Réglages', icon: '⚙️' },
 ];
 
@@ -110,10 +114,41 @@ export function Layout({ currentPage, onNavigate, children }: LayoutProps) {
       )}
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">{children}</main>
+      <main className="flex-1 overflow-hidden pb-16 md:pb-0">{children}</main>
+
+      {/* Mobile bottom tab bar — shows the 5 most-used pages */}
+      <nav
+        className="md:hidden fixed bottom-0 inset-x-0 bg-amp-panel border-t border-amp-border flex z-30"
+        aria-label="Navigation rapide"
+      >
+        {MOBILE_TABS.map((item) => (
+          <button
+            key={item.id}
+            onClick={() => handleNav(item.id)}
+            aria-current={currentPage === item.id ? 'page' : undefined}
+            className={`flex-1 flex flex-col items-center py-2 transition-colors ${
+              currentPage === item.id
+                ? 'text-amp-accent'
+                : 'text-amp-muted'
+            }`}
+          >
+            <span className="text-lg" aria-hidden="true">{item.icon}</span>
+            <span className="text-[10px] mt-0.5">{item.label}</span>
+          </button>
+        ))}
+      </nav>
     </div>
   );
 }
+
+/** Mobile bottom bar: most important 5 pages. */
+const MOBILE_TABS: NavItem[] = [
+  { id: 'search', label: 'Rechercher', icon: '🔍' },
+  { id: 'library', label: 'Biblio', icon: '📚' },
+  { id: 'viewer', label: 'Lecteur', icon: '🎼' },
+  { id: 'transcribe', label: 'Transcrire', icon: '🤖' },
+  { id: 'settings', label: 'Plus', icon: '☰' },
+];
 
 interface NavButtonProps {
   item: NavItem;

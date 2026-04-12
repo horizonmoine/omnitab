@@ -22,6 +22,8 @@ import { Recorder } from './components/Recorder';
 import { Transcriber } from './components/Transcriber';
 import { Metronome } from './components/Metronome';
 import { StemPlayer } from './components/StemPlayer';
+import { ChordLibrary } from './components/ChordLibrary';
+import { SpeedTrainer } from './components/SpeedTrainer';
 import { Settings } from './components/Settings';
 
 interface PendingTab {
@@ -91,6 +93,10 @@ export function App() {
         return <Metronome />;
       case 'stems':
         return <StemPlayer />;
+      case 'chords':
+        return <ChordLibrary />;
+      case 'speed-trainer':
+        return <SpeedTrainer />;
       case 'settings':
         return <Settings />;
       default:
