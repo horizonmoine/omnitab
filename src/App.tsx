@@ -24,6 +24,9 @@ import { Metronome } from './components/Metronome';
 import { StemPlayer } from './components/StemPlayer';
 import { ChordLibrary } from './components/ChordLibrary';
 import { SpeedTrainer } from './components/SpeedTrainer';
+import { ScaleLibrary } from './components/ScaleLibrary';
+import { EarTraining } from './components/EarTraining';
+import { BackingTrack } from './components/BackingTrack';
 import { Settings } from './components/Settings';
 
 interface PendingTab {
@@ -41,9 +44,23 @@ export function App() {
   const [pendingTab, setPendingTab] = useState<PendingTab | null>(null);
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
 
-  // Persist current page in sessionStorage so a stray reload doesn't kick the
-  // user back to the search screen.
+  // Check for shared tab in URL (?tab=base64-encoded-alphaTex).
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tabParam = params.get('tab');
+    if (tabParam) {
+      try {
+        const tex = atob(tabParam);
+        setPendingTab({ data: tex, title: 'Tab partagée' });
+        setPage('viewer');
+        // Clean the URL without reloading.
+        window.history.replaceState({}, '', window.location.pathname);
+      } catch {
+        console.warn('[OmniTab] invalid ?tab= param');
+      }
+      return; // Skip sessionStorage restore when opening a shared link.
+    }
+
     const saved = sessionStorage.getItem('omnitab.page') as Page | null;
     if (saved) setPage(saved);
   }, []);
@@ -97,6 +114,12 @@ export function App() {
         return <ChordLibrary />;
       case 'speed-trainer':
         return <SpeedTrainer />;
+      case 'scales':
+        return <ScaleLibrary />;
+      case 'ear-training':
+        return <EarTraining />;
+      case 'backing-track':
+        return <BackingTrack />;
       case 'settings':
         return <Settings />;
       default:

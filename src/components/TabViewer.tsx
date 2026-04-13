@@ -42,6 +42,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   const [zoom, setZoom] = useState(1.0);
   const [currentBar, setCurrentBar] = useState(0);
   const [totalBars, setTotalBars] = useState(0);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Initialize the AlphaTab API.
   useEffect(() => {
@@ -305,6 +306,24 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
               {speed}%
             </span>
           </div>
+
+          {/* Share (only for alphaTex string sources) */}
+          {typeof source === 'string' && (
+            <button
+              onClick={() => {
+                const encoded = btoa(source);
+                const url = `${window.location.origin}${window.location.pathname}?tab=${encoded}`;
+                navigator.clipboard.writeText(url).then(() => {
+                  setShareCopied(true);
+                  setTimeout(() => setShareCopied(false), 2000);
+                });
+              }}
+              className="px-2 py-1.5 rounded text-xs font-bold bg-amp-panel-2 text-amp-muted hover:text-amp-text transition-colors border-l border-amp-border ml-1"
+              title="Copier le lien de partage"
+            >
+              {shareCopied ? '✓ Copié' : '🔗 Partager'}
+            </button>
+          )}
 
           {/* Zoom */}
           <div className="flex items-center gap-1 border-l border-amp-border pl-2">

@@ -20,6 +20,9 @@ export type Page =
   | 'stems'
   | 'chords'
   | 'speed-trainer'
+  | 'scales'
+  | 'ear-training'
+  | 'backing-track'
   | 'settings';
 
 interface NavItem {
@@ -40,6 +43,9 @@ const NAV: NavItem[] = [
   { id: 'stems', label: 'Stems', icon: '🎛️' },
   { id: 'chords', label: 'Accords', icon: '🎵' },
   { id: 'speed-trainer', label: 'Speed Trainer', icon: '🏎️' },
+  { id: 'scales', label: 'Gammes', icon: '🎹' },
+  { id: 'ear-training', label: 'Ear Training', icon: '👂' },
+  { id: 'backing-track', label: 'Backing Track', icon: '🔁' },
   { id: 'settings', label: 'Réglages', icon: '⚙️' },
 ];
 
