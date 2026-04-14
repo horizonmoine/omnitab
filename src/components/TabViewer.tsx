@@ -14,6 +14,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appBus } from '../lib/event-bus';
 import { createRocksmithDetector, type RocksmithDetector, type RocksmithEvent } from '../lib/rocksmith-detector';
+import { extractBeats } from '../lib/alpha-tab-beats';
+import { transcribeAudio } from '../lib/basic-pitch';
+import { decodeAndResample } from '../lib/audio-engine';
+import { diffTabVsAudio, healerScore, type HealerFlag } from '../lib/tab-healer';
 import { toast } from './Toast';
 
 interface TabViewerProps {
@@ -52,6 +56,13 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   const [rocksmithActive, setRocksmithActive] = useState(false);
   const [rocksmithStats, setRocksmithStats] = useState({ hits: 0, total: 0 });
   const [lastHit, setLastHit] = useState<boolean | null>(null);
+
+  // Tab Healer state
+  const [healerOpen, setHealerOpen] = useState(false);
+  const [healerRunning, setHealerRunning] = useState(false);
+  const [healerStatus, setHealerStatus] = useState('');
+  const [healerFlags, setHealerFlags] = useState<HealerFlag[] | null>(null);
+  const [healerScoreValue, setHealerScoreValue] = useState<number | null>(null);
 
   // Initialize the AlphaTab API.
   useEffect(() => {
@@ -238,6 +249,50 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   // Clean up Rocksmith detector on unmount.
   useEffect(() => () => { rocksmithRef.current?.stop(); }, []);
 
+  /**
+   * Run Tab Healer: extract beats from the currently active track, transcribe
+   * the user-uploaded reference audio with basic-pitch, and diff the two.
+   */
+  const runHealer = useCallback(async (file: File) => {
+    const api = apiRef.current;
+    if (!api?.score?.tracks) {
+      toast.error('La tab n\'est pas encore chargée.');
+      return;
+    }
+    const track = api.score.tracks[activeTrack];
+    if (!track) return;
+
+    setHealerRunning(true);
+    setHealerFlags(null);
+    setHealerScoreValue(null);
+    try {
+      const beats = extractBeats(track);
+      if (beats.length === 0) {
+        toast.error('Aucune note exploitable dans la piste sélectionnée.');
+        return;
+      }
+
+      setHealerStatus('Décodage de l\'audio…');
+      const audioBuffer = await decodeAndResample(file, 22050);
+
+      const detected = await transcribeAudio(audioBuffer, undefined, ({ status }) =>
+        setHealerStatus(status),
+      );
+
+      setHealerStatus('Comparaison tab vs audio…');
+      const flags = diffTabVsAudio(beats, detected);
+      const score = healerScore(beats.length, flags);
+      setHealerFlags(flags);
+      setHealerScoreValue(score);
+      setHealerStatus(`✅ ${flags.length} signalements sur ${beats.length} beats`);
+    } catch (err) {
+      toast.error(`Healer a échoué : ${(err as Error).message}`);
+      setHealerStatus('');
+    } finally {
+      setHealerRunning(false);
+    }
+  }, [activeTrack]);
+
   const toggleLoop = useCallback(() => {
     setLooping((prev) => {
       const next = !prev;
@@ -335,6 +390,19 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             title="Boucle (L)"
           >
             🔁
+          </button>
+
+          {/* Tab Healer toggle */}
+          <button
+            onClick={() => setHealerOpen((o) => !o)}
+            className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
+              healerOpen
+                ? 'bg-amp-accent text-amp-bg'
+                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
+            }`}
+            title="Tab Healer — vérifier la tab contre un audio"
+          >
+            🔍
           </button>
 
           {/* Rocksmith toggle */}
@@ -458,6 +526,94 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           ))}
         </div>
       </div>
+
+      {/* Tab Healer panel */}
+      {healerOpen && (
+        <div className="bg-amp-panel border-b border-amp-border px-3 py-3">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <div>
+              <div className="text-sm font-bold text-amp-accent">🔍 Tab Healer</div>
+              <p className="text-xs text-amp-muted">
+                Charge l'audio original : on compare la tab à une transcription IA
+                pour repérer les notes douteuses.
+              </p>
+            </div>
+            {healerScoreValue !== null && (
+              <div
+                className={`px-3 py-1.5 rounded font-mono text-sm ${
+                  healerScoreValue > 0.8
+                    ? 'bg-green-500/20 text-green-400'
+                    : healerScoreValue > 0.5
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-red-500/20 text-red-400'
+                }`}
+                title="Confiance globale de la tab"
+              >
+                Fiabilité : {Math.round(healerScoreValue * 100)}%
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="inline-block">
+              <span className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-3 py-1.5 rounded text-xs cursor-pointer inline-block">
+                {healerRunning ? '⏳ Analyse…' : '📂 Choisir un audio'}
+              </span>
+              <input
+                type="file"
+                accept="audio/*"
+                disabled={healerRunning}
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) runHealer(f);
+                  e.target.value = '';
+                }}
+                className="hidden"
+              />
+            </label>
+            {healerStatus && (
+              <span className="text-xs text-amp-muted" aria-live="polite">
+                {healerStatus}
+              </span>
+            )}
+          </div>
+
+          {healerFlags && healerFlags.length > 0 && (
+            <ul className="mt-3 max-h-40 overflow-y-auto bg-amp-bg/40 rounded border border-amp-border divide-y divide-amp-border">
+              {healerFlags.slice(0, 100).map((f, i) => (
+                <li
+                  key={i}
+                  onClick={() => apiRef.current?.timePosition && (apiRef.current.timePosition = f.timeSeconds * 1000)}
+                  className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-amp-panel-2 ${
+                    f.severity === 'error'
+                      ? 'text-red-400'
+                      : f.severity === 'warning'
+                        ? 'text-yellow-400'
+                        : 'text-amp-muted'
+                  }`}
+                  title="Cliquer pour aller à ce moment"
+                >
+                  <span className="font-mono mr-2">
+                    {f.timeSeconds.toFixed(2)}s
+                  </span>
+                  {f.message}
+                </li>
+              ))}
+              {healerFlags.length > 100 && (
+                <li className="px-3 py-1.5 text-xs text-amp-muted italic">
+                  …{healerFlags.length - 100} autres signalements masqués
+                </li>
+              )}
+            </ul>
+          )}
+
+          {healerFlags && healerFlags.length === 0 && (
+            <div className="mt-3 text-xs text-green-400">
+              ✓ Aucun désaccord détecté — la tab semble fiable.
+            </div>
+          )}
+        </div>
+      )}
 
       {/* AlphaTab render area */}
       <div className="flex-1 relative overflow-auto bg-white">

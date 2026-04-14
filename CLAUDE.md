@@ -73,7 +73,13 @@ src/
 │   ├── pitch-detection.ts
 │   ├── tempo-detection.ts
 │   ├── songsterr-api.ts # Songsterr /api/songs proxy client
-│   └── demucs-client.ts # HF Space FastAPI client
+│   ├── demucs-client.ts # HF Space FastAPI client (+ /youtube-audio)
+│   ├── event-bus.ts     # Pub/sub bus for cross-page actions
+│   ├── input-router.ts  # App-level MIDI + voice singletons
+│   ├── rocksmith-detector.ts # pitchy + AlphaTab beat sync
+│   ├── auto-tone.ts     # Offline FFT → 3-band EQ suggestion
+│   ├── tab-healer.ts    # Diff human tab vs basic-pitch detection
+│   └── alpha-tab-beats.ts # Score → flat TabBeat[] for healer
 ├── workers/
 │   └── basic-pitch.worker.ts  # TF.js inference (module cached)
 api/
@@ -138,8 +144,11 @@ Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
 
 ## Future Ideas (R&D)
 
-- **Rocksmith mode:** Real-time pitch detection synced with AlphaTab cursor (green/red note feedback)
+- ✅ **Rocksmith mode:** Real-time pitch detection synced with AlphaTab cursor (green/red note feedback)
+- ✅ **Auto-tone matching:** FFT analysis of isolated guitar stem → auto-adjust amp EQ
+- ✅ **YouTube → audio pipeline:** yt-dlp on HF Space → MP3 → user feeds into Transcriber/Demucs
+- ✅ **Tab Healer:** Compare basic-pitch transcription vs human tab to flag potential errors
 - **Demucs + AlphaTab sync:** Play original stems (minus guitar) in sync with tab scrolling
-- **Auto-tone matching:** FFT analysis of isolated guitar stem → auto-adjust amp EQ
-- **YouTube → Tab pipeline:** yt-dlp on backend → Demucs → basic-pitch → alphaTex
-- **Tab Healer:** Compare AI transcription vs human tab to flag potential errors
+- **Auto-tone v2:** Live mic comparison vs reference, not just static FFT
+- **Healer overlay:** Render flag indicators directly on the AlphaTab cursor (currently a list)
+- **Setlist mode:** Chain multiple tabs from the library with auto-progression
