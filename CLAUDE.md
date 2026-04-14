@@ -80,7 +80,8 @@ src/
 │   ├── auto-tone.ts     # Offline FFT → 3-band EQ suggestion
 │   ├── tab-healer.ts    # Diff human tab vs basic-pitch detection
 │   ├── alpha-tab-beats.ts # Score → flat TabBeat[] for healer
-│   └── stem-sync.ts     # HTMLAudioElement multi-stem player + drift sync
+│   ├── stem-sync.ts     # HTMLAudioElement multi-stem player + drift sync
+│   └── take-recorder.ts # MediaRecorder wrapper for play-along takes
 ├── workers/
 │   └── basic-pitch.worker.ts  # TF.js inference (module cached)
 api/

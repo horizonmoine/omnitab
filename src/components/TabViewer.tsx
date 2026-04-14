@@ -19,7 +19,8 @@ import { transcribeAudio } from '../lib/basic-pitch';
 import { decodeAndResample } from '../lib/audio-engine';
 import { diffTabVsAudio, healerScore, type HealerFlag } from '../lib/tab-healer';
 import { createStemPlayer, type StemPlayer } from '../lib/stem-sync';
-import { getAllStems, type SavedStem } from '../lib/db';
+import { startTake, type TakeRecorder } from '../lib/take-recorder';
+import { getAllStems, saveRecording, type SavedStem } from '../lib/db';
 import { toast } from './Toast';
 
 interface TabViewerProps {
@@ -69,6 +70,21 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     // — that's the whole point of "play along to the song without the guitar".
     guitar: true,
   });
+
+  // Take-recorder state
+  const takeRef = useRef<TakeRecorder | null>(null);
+  const [taking, setTaking] = useState(false);
+  const [takeStartMs, setTakeStartMs] = useState(0);
+  const [takeElapsed, setTakeElapsed] = useState(0);
+
+  // Tick the elapsed counter while recording.
+  useEffect(() => {
+    if (!taking) return;
+    const id = window.setInterval(() => {
+      setTakeElapsed((performance.now() - takeStartMs) / 1000);
+    }, 250);
+    return () => window.clearInterval(id);
+  }, [taking, takeStartMs]);
 
   // Tab Healer state
   const [healerOpen, setHealerOpen] = useState(false);
@@ -273,6 +289,44 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     stemPlayerRef.current = null;
     setActiveStemSong(null);
   }, []);
+
+  const toggleTake = useCallback(async () => {
+    // Stop branch — flush, save to IndexedDB, toast.
+    if (taking && takeRef.current) {
+      try {
+        const { blob, durationSeconds } = await takeRef.current.stop();
+        const title =
+          (apiRef.current?.score?.title as string | undefined)?.trim() ||
+          'Sans titre';
+        const stamp = new Date().toLocaleString('fr-FR', { hour12: false });
+        await saveRecording(`${title} — prise du ${stamp}`, blob, durationSeconds);
+        toast.success(
+          `🎙️ Prise sauvegardée (${durationSeconds.toFixed(1)}s, ${(blob.size / 1024).toFixed(0)} KB)`,
+        );
+      } catch (err) {
+        toast.error(`Échec sauvegarde : ${(err as Error).message}`);
+      } finally {
+        takeRef.current = null;
+        setTaking(false);
+        setTakeElapsed(0);
+      }
+      return;
+    }
+
+    // Start branch.
+    try {
+      takeRef.current = await startTake();
+      setTakeStartMs(performance.now());
+      setTakeElapsed(0);
+      setTaking(true);
+      toast.info('🎙️ Enregistrement en cours…');
+    } catch (err) {
+      toast.error(`Micro indisponible : ${(err as Error).message}`);
+    }
+  }, [taking]);
+
+  // Cancel any in-flight take if the viewer unmounts mid-recording.
+  useEffect(() => () => { takeRef.current?.cancel(); }, []);
 
   const toggleStemMute = useCallback((name: string) => {
     setStemMutes((prev) => {
@@ -481,6 +535,19 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             title="Boucle (L)"
           >
             🔁
+          </button>
+
+          {/* Take recorder */}
+          <button
+            onClick={toggleTake}
+            className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
+              taking
+                ? 'bg-amp-error text-white animate-pulse'
+                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
+            }`}
+            title={taking ? 'Arrêter et sauvegarder la prise' : 'Enregistrer une prise (mic)'}
+          >
+            {taking ? `● ${takeElapsed.toFixed(0)}s` : '🎙️'}
           </button>
 
           {/* Stem-sync toggle */}
