@@ -79,7 +79,8 @@ src/
 │   ├── rocksmith-detector.ts # pitchy + AlphaTab beat sync
 │   ├── auto-tone.ts     # Offline FFT → 3-band EQ suggestion
 │   ├── tab-healer.ts    # Diff human tab vs basic-pitch detection
-│   └── alpha-tab-beats.ts # Score → flat TabBeat[] for healer
+│   ├── alpha-tab-beats.ts # Score → flat TabBeat[] for healer
+│   └── stem-sync.ts     # HTMLAudioElement multi-stem player + drift sync
 ├── workers/
 │   └── basic-pitch.worker.ts  # TF.js inference (module cached)
 api/
@@ -148,7 +149,7 @@ Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
 - ✅ **Auto-tone matching:** FFT analysis of isolated guitar stem → auto-adjust amp EQ
 - ✅ **YouTube → audio pipeline:** yt-dlp on HF Space → MP3 → user feeds into Transcriber/Demucs
 - ✅ **Tab Healer:** Compare basic-pitch transcription vs human tab to flag potential errors
-- **Demucs + AlphaTab sync:** Play original stems (minus guitar) in sync with tab scrolling
+- ✅ **Demucs + AlphaTab sync:** Stems play in lock-step with the tab cursor, mute-per-stem, speed mirrored
 - **Auto-tone v2:** Live mic comparison vs reference, not just static FFT
 - **Healer overlay:** Render flag indicators directly on the AlphaTab cursor (currently a list)
 - **Setlist mode:** Chain multiple tabs from the library with auto-progression

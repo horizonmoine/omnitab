@@ -18,6 +18,8 @@ import { extractBeats } from '../lib/alpha-tab-beats';
 import { transcribeAudio } from '../lib/basic-pitch';
 import { decodeAndResample } from '../lib/audio-engine';
 import { diffTabVsAudio, healerScore, type HealerFlag } from '../lib/tab-healer';
+import { createStemPlayer, type StemPlayer } from '../lib/stem-sync';
+import { getAllStems, type SavedStem } from '../lib/db';
 import { toast } from './Toast';
 
 interface TabViewerProps {
@@ -56,6 +58,17 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   const [rocksmithActive, setRocksmithActive] = useState(false);
   const [rocksmithStats, setRocksmithStats] = useState({ hits: 0, total: 0 });
   const [lastHit, setLastHit] = useState<boolean | null>(null);
+
+  // Stem sync state
+  const stemPlayerRef = useRef<StemPlayer | null>(null);
+  const [stemsOpen, setStemsOpen] = useState(false);
+  const [stemSongs, setStemSongs] = useState<Map<string, SavedStem[]>>(new Map());
+  const [activeStemSong, setActiveStemSong] = useState<string | null>(null);
+  const [stemMutes, setStemMutes] = useState<Record<string, boolean>>({
+    // The user's own guitar should silence the original guitar stem by default
+    // — that's the whole point of "play along to the song without the guitar".
+    guitar: true,
+  });
 
   // Tab Healer state
   const [healerOpen, setHealerOpen] = useState(false);
@@ -121,6 +134,20 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
         api.playerStateChanged.on((args: { state: number }) => {
           setIsPlaying(args.state === 1);
+          // Drive stems in lock-step with AlphaTab transport.
+          const sp = stemPlayerRef.current;
+          if (sp) {
+            if (args.state === 1) sp.play();
+            else sp.pause();
+          }
+        });
+
+        // Stem drift correction. AlphaTab fires this every ~50 ms during play.
+        api.playerPositionChanged?.on?.((args: { currentTime: number }) => {
+          const sp = stemPlayerRef.current;
+          if (sp && typeof args?.currentTime === 'number') {
+            sp.syncTo(args.currentTime / 1000);
+          }
         });
 
         api.playedBeatChanged.on((beat: {
@@ -209,7 +236,71 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     if (api) {
       api.playbackSpeed = pct / 100;
     }
+    stemPlayerRef.current?.setRate(pct / 100);
   }, []);
+
+  /** Load all saved stems for a song from IndexedDB and start syncing them. */
+  const loadStemSet = useCallback(async (songTitle: string) => {
+    const stems = stemSongs.get(songTitle);
+    if (!stems || stems.length === 0) return;
+
+    // Tear down any previous set first.
+    stemPlayerRef.current?.dispose();
+    const player = createStemPlayer(
+      stems.map((s) => ({
+        name: s.stemType,
+        blob: s.blob,
+        muted: stemMutes[s.stemType] ?? false,
+      })),
+    );
+    // Mute the in-engine guitar track so we don't hear two guitars stacked.
+    const api = apiRef.current;
+    if (api && stemMutes.guitar) {
+      try {
+        api.changeTrackMute?.(api.score?.tracks ?? [], false);
+      } catch { /* ignore — older AlphaTab signatures vary */ }
+    }
+    // If the user already pressed play, kick stems off too.
+    if (isPlaying) await player.play();
+    player.setRate(speed / 100);
+    stemPlayerRef.current = player;
+    setActiveStemSong(songTitle);
+    toast.success(`Stems chargés : ${stems.map((s) => s.stemType).join(' + ')}`);
+  }, [stemSongs, stemMutes, isPlaying, speed]);
+
+  const unloadStems = useCallback(() => {
+    stemPlayerRef.current?.dispose();
+    stemPlayerRef.current = null;
+    setActiveStemSong(null);
+  }, []);
+
+  const toggleStemMute = useCallback((name: string) => {
+    setStemMutes((prev) => {
+      const next = { ...prev, [name]: !prev[name] };
+      stemPlayerRef.current?.setMuted(name, next[name]);
+      return next;
+    });
+  }, []);
+
+  // When the panel opens, list available stem-songs from IndexedDB.
+  useEffect(() => {
+    if (!stemsOpen) return;
+    let cancelled = false;
+    getAllStems().then((all) => {
+      if (cancelled) return;
+      const grouped = new Map<string, SavedStem[]>();
+      for (const s of all) {
+        const arr = grouped.get(s.songTitle) ?? [];
+        arr.push(s);
+        grouped.set(s.songTitle, arr);
+      }
+      setStemSongs(grouped);
+    });
+    return () => { cancelled = true; };
+  }, [stemsOpen]);
+
+  // Always tear down stems on unmount.
+  useEffect(() => () => { stemPlayerRef.current?.dispose(); }, []);
 
   const switchTrack = useCallback((index: number) => {
     setActiveTrack(index);
@@ -392,6 +483,19 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             🔁
           </button>
 
+          {/* Stem-sync toggle */}
+          <button
+            onClick={() => setStemsOpen((o) => !o)}
+            className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
+              stemsOpen || activeStemSong
+                ? 'bg-amp-accent text-amp-bg'
+                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
+            }`}
+            title="Stems synchronisés (jouer avec l'audio original)"
+          >
+            🎵
+          </button>
+
           {/* Tab Healer toggle */}
           <button
             onClick={() => setHealerOpen((o) => !o)}
@@ -526,6 +630,76 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           ))}
         </div>
       </div>
+
+      {/* Stem-sync panel */}
+      {stemsOpen && (
+        <div className="bg-amp-panel border-b border-amp-border px-3 py-3">
+          <div className="flex items-center justify-between mb-2">
+            <div>
+              <div className="text-sm font-bold text-amp-accent">🎵 Stems synchronisés</div>
+              <p className="text-xs text-amp-muted">
+                Charge les stems Demucs d'une chanson : ils suivent le curseur de la tab.
+                Sépare l'audio depuis la page Transcrire pour en ajouter.
+              </p>
+            </div>
+            {activeStemSong && (
+              <button
+                onClick={unloadStems}
+                className="text-xs text-amp-error hover:underline"
+              >
+                ✕ Décharger
+              </button>
+            )}
+          </div>
+
+          {stemSongs.size === 0 ? (
+            <p className="text-xs text-amp-muted italic">
+              Aucun stem sauvegardé. Va dans Transcrire → "Séparer tous les stems".
+            </p>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-1 mb-3">
+                {Array.from(stemSongs.keys()).map((title) => (
+                  <button
+                    key={title}
+                    onClick={() => loadStemSet(title)}
+                    className={`px-3 py-1 rounded text-xs transition-colors ${
+                      activeStemSong === title
+                        ? 'bg-amp-accent text-amp-bg font-bold'
+                        : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
+                    }`}
+                  >
+                    {title} ({stemSongs.get(title)?.length})
+                  </button>
+                ))}
+              </div>
+
+              {activeStemSong && (
+                <div className="flex flex-wrap gap-2">
+                  {stemPlayerRef.current?.handles.map((h) => (
+                    <label
+                      key={h.name}
+                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer ${
+                        stemMutes[h.name]
+                          ? 'bg-amp-bg/40 text-amp-muted line-through'
+                          : 'bg-amp-panel-2 text-amp-text'
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={!stemMutes[h.name]}
+                        onChange={() => toggleStemMute(h.name)}
+                        className="accent-amp-accent"
+                      />
+                      {h.name}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
 
       {/* Tab Healer panel */}
       {healerOpen && (
