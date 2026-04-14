@@ -1,33 +1,35 @@
 /**
  * Coque principale de l'app.
  *
- * Connecte Layout (sidebar / bottom-bar) aux 7 pages et gère les passages
+ * Connecte Layout (sidebar / bottom-bar) aux 15 pages et gère les passages
  * de main inter-pages via les slots `pendingTab` et `pendingAudio`.
  *
- * Flux inter-pages :
- *   • Search     → charge la tab dans Viewer
- *   • Library    → ouvre une tab stockée dans Viewer
- *   • Recorder   → passe un Blob au Transcriber
- *   • Transcriber → envoie l'alphaTex généré au Viewer
+ * Lazy-loaded pages: TabViewer, Transcriber, ScaleLibrary, EarTraining,
+ * BackingTrack, ChordLibrary, SpeedTrainer, StemPlayer, AmpSim — these are
+ * code-split into separate chunks to keep the initial bundle small.
  */
 
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Layout, type Page } from './components/Layout';
 import { TabSearch } from './components/TabSearch';
 import { Library } from './components/Library';
-import { TabViewer } from './components/TabViewer';
 import { Tuner } from './components/Tuner';
-import { AmpSim } from './components/AmpSim';
 import { Recorder } from './components/Recorder';
-import { Transcriber } from './components/Transcriber';
 import { Metronome } from './components/Metronome';
-import { StemPlayer } from './components/StemPlayer';
-import { ChordLibrary } from './components/ChordLibrary';
-import { SpeedTrainer } from './components/SpeedTrainer';
-import { ScaleLibrary } from './components/ScaleLibrary';
-import { EarTraining } from './components/EarTraining';
-import { BackingTrack } from './components/BackingTrack';
 import { Settings } from './components/Settings';
+import { ToastContainer } from './components/Toast';
+
+// Lazy-loaded pages — each becomes a separate chunk.
+const TabViewer = lazy(() => import('./components/TabViewer').then((m) => ({ default: m.TabViewer })));
+const Transcriber = lazy(() => import('./components/Transcriber').then((m) => ({ default: m.Transcriber })));
+const AmpSim = lazy(() => import('./components/AmpSim').then((m) => ({ default: m.AmpSim })));
+const StemPlayer = lazy(() => import('./components/StemPlayer').then((m) => ({ default: m.StemPlayer })));
+const ChordLibrary = lazy(() => import('./components/ChordLibrary').then((m) => ({ default: m.ChordLibrary })));
+const SpeedTrainer = lazy(() => import('./components/SpeedTrainer').then((m) => ({ default: m.SpeedTrainer })));
+const ScaleLibrary = lazy(() => import('./components/ScaleLibrary').then((m) => ({ default: m.ScaleLibrary })));
+const EarTraining = lazy(() => import('./components/EarTraining').then((m) => ({ default: m.EarTraining })));
+const BackingTrack = lazy(() => import('./components/BackingTrack').then((m) => ({ default: m.BackingTrack })));
+const PracticeJournal = lazy(() => import('./components/PracticeJournal').then((m) => ({ default: m.PracticeJournal })));
 
 interface PendingTab {
   data: ArrayBuffer | string;
@@ -37,6 +39,16 @@ interface PendingTab {
 interface PendingAudio {
   blob: Blob;
   label: string;
+}
+
+function PageLoader() {
+  return (
+    <div className="h-full flex items-center justify-center">
+      <div className="text-center">
+        <div className="animate-pulse text-amp-accent text-xl mb-2">Chargement...</div>
+      </div>
+    </div>
+  );
 }
 
 export function App() {
@@ -120,6 +132,8 @@ export function App() {
         return <EarTraining />;
       case 'backing-track':
         return <BackingTrack />;
+      case 'practice':
+        return <PracticeJournal />;
       case 'settings':
         return <Settings />;
       default:
@@ -128,9 +142,14 @@ export function App() {
   };
 
   return (
-    <Layout currentPage={page} onNavigate={setPage}>
-      {renderPage()}
-    </Layout>
+    <>
+      <Layout currentPage={page} onNavigate={setPage}>
+        <Suspense fallback={<PageLoader />}>
+          {renderPage()}
+        </Suspense>
+      </Layout>
+      <ToastContainer />
+    </>
   );
 }
 

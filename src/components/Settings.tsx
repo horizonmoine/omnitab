@@ -11,9 +11,18 @@
  * sont immédiats — inutile de recharger l'app.
  */
 
-import { useEffect, useState } from 'react';
+/** PWA install prompt event — not in lib.dom.d.ts yet. */
+interface BeforeInstallPromptEvent extends Event {
+  prompt(): Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { TUNINGS } from '../lib/guitarTunings';
 import { DEFAULT_COST_WEIGHTS } from '../lib/midi-to-tab';
+import { MidiController, type MidiAction } from '../lib/midi-controller';
+import { VoiceCommandEngine, type VoiceAction } from '../lib/voice-commands';
+import { toast } from './Toast';
 import {
   DEFAULT_SETTINGS,
   getSettings,
@@ -36,6 +45,86 @@ function useSettings(): AppSettings {
 export function Settings() {
   const settings = useSettings();
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
+
+  // ───── MIDI controller ─────
+  const midiRef = useRef<MidiController | null>(null);
+  const [midiDevices, setMidiDevices] = useState<string[]>([]);
+  const [midiConnected, setMidiConnected] = useState(false);
+  const [lastMidiAction, setLastMidiAction] = useState<string | null>(null);
+
+  const connectMidi = useCallback(async () => {
+    const ctrl = new MidiController();
+    if (!ctrl.isSupported) {
+      toast.error('Web MIDI non supporté sur ce navigateur.');
+      return;
+    }
+    ctrl.onAction = (action: MidiAction) => {
+      setLastMidiAction(action);
+      toast.info(`MIDI: ${action}`);
+    };
+    ctrl.onDeviceChange = (devices) => setMidiDevices(devices);
+    const devices = await ctrl.connect();
+    midiRef.current = ctrl;
+    setMidiDevices(devices);
+    setMidiConnected(true);
+    toast.success(`MIDI connecté (${devices.length} appareil${devices.length > 1 ? 's' : ''})`);
+  }, []);
+
+  const disconnectMidi = useCallback(() => {
+    midiRef.current?.disconnect();
+    midiRef.current = null;
+    setMidiConnected(false);
+    setMidiDevices([]);
+    setLastMidiAction(null);
+  }, []);
+
+  useEffect(() => () => { midiRef.current?.disconnect(); }, []);
+
+  // ───── Voice commands ─────
+  const voiceRef = useRef<VoiceCommandEngine | null>(null);
+  const [voiceListening, setVoiceListening] = useState(false);
+  const [lastVoiceTranscript, setLastVoiceTranscript] = useState<string | null>(null);
+  const [lastVoiceAction, setLastVoiceAction] = useState<string | null>(null);
+
+  const toggleVoice = useCallback(() => {
+    if (voiceListening) {
+      voiceRef.current?.stop();
+      voiceRef.current = null;
+      setVoiceListening(false);
+      return;
+    }
+    const engine = new VoiceCommandEngine();
+    if (!engine.isSupported) {
+      toast.error('Reconnaissance vocale non supportée.');
+      return;
+    }
+    engine.onAction = (action: VoiceAction) => {
+      setLastVoiceAction(action);
+      toast.info(`Voix: ${action}`);
+    };
+    engine.onTranscript = (text) => setLastVoiceTranscript(text);
+    engine.onError = (err) => toast.error(`Voix: ${err}`);
+    const ok = engine.start();
+    if (ok) {
+      voiceRef.current = engine;
+      setVoiceListening(true);
+      toast.success('Commandes vocales activées');
+    }
+  }, [voiceListening]);
+
+  useEffect(() => () => { voiceRef.current?.stop(); }, []);
+
+  // ───── PWA Install ─────
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
+
+  useEffect(() => {
+    const handler = (e: Event) => {
+      e.preventDefault();
+      setInstallPrompt(e as BeforeInstallPromptEvent);
+    };
+    window.addEventListener('beforeinstallprompt', handler);
+    return () => window.removeEventListener('beforeinstallprompt', handler);
+  }, []);
 
   // Wrap updateSettings() so the small "Enregistré" toast is consistent.
   const update = async (patch: Partial<AppSettings>) => {
@@ -187,6 +276,95 @@ export function Settings() {
           ↺ Valeurs par défaut
         </button>
       </Section>
+
+      {/* ───── MIDI ───── */}
+      <Section
+        title="Pédalier MIDI"
+        subtitle="Connecte un pédalier MIDI USB ou Bluetooth pour contrôler l'app au pied."
+      >
+        <div className="flex items-center gap-3">
+          <button
+            onClick={midiConnected ? disconnectMidi : connectMidi}
+            className={`px-4 py-2 rounded text-sm font-bold transition-colors ${
+              midiConnected
+                ? 'bg-amp-error/20 text-amp-error border border-amp-error/40'
+                : 'bg-amp-accent text-amp-bg'
+            }`}
+          >
+            {midiConnected ? 'Déconnecter' : 'Connecter MIDI'}
+          </button>
+          {midiConnected && (
+            <span className="text-xs text-amp-success">Connecté</span>
+          )}
+        </div>
+        {midiDevices.length > 0 && (
+          <div className="text-xs text-amp-muted mt-2">
+            Appareils : {midiDevices.join(', ')}
+          </div>
+        )}
+        {lastMidiAction && (
+          <div className="text-xs text-amp-accent mt-1">
+            Dernière action : {lastMidiAction}
+          </div>
+        )}
+        <div className="text-xs text-amp-muted mt-2">
+          CC 64 = Play/Pause, CC 65 = Boucle, CC 66 = Ralentir, CC 67 = Accélérer
+        </div>
+      </Section>
+
+      {/* ───── Commandes vocales ───── */}
+      <Section
+        title="Commandes vocales"
+        subtitle="Contrôle mains libres via le micro. Dis 'joue', 'pause', 'boucle', 'ralentis'..."
+      >
+        <div className="flex items-center gap-3">
+          <button
+            onClick={toggleVoice}
+            className={`px-4 py-2 rounded text-sm font-bold transition-colors ${
+              voiceListening
+                ? 'bg-amp-error/20 text-amp-error border border-amp-error/40 animate-pulse'
+                : 'bg-amp-accent text-amp-bg'
+            }`}
+          >
+            {voiceListening ? '🎙️ Arrêter' : '🎙️ Activer'}
+          </button>
+          {voiceListening && (
+            <span className="text-xs text-amp-success">En écoute...</span>
+          )}
+        </div>
+        {lastVoiceTranscript && (
+          <div className="text-xs text-amp-muted mt-2">
+            Entendu : « {lastVoiceTranscript} »
+          </div>
+        )}
+        {lastVoiceAction && (
+          <div className="text-xs text-amp-accent mt-1">
+            Action : {lastVoiceAction}
+          </div>
+        )}
+      </Section>
+
+      {/* ───── PWA Install ───── */}
+      {installPrompt && (
+        <Section
+          title="Installer OmniTab"
+          subtitle="Ajoute l'app à ton écran d'accueil pour un accès rapide et offline."
+        >
+          <button
+            onClick={async () => {
+              installPrompt.prompt();
+              const result = await installPrompt.userChoice;
+              if (result.outcome === 'accepted') {
+                toast.success('OmniTab installée !');
+                setInstallPrompt(null);
+              }
+            }}
+            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-6 py-2.5 rounded transition-colors"
+          >
+            📱 Installer OmniTab
+          </button>
+        </Section>
+      )}
 
       {/* ───── Reset global ───── */}
       <div className="max-w-2xl mt-8 p-4 border border-amp-border rounded">

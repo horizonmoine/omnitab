@@ -25,7 +25,7 @@ Built for Samsung A52s + iRig Micro Amp. Works 100% offline after first load.
 - **Tab rendering:** AlphaTab 1.5.0 (CDN: jsdelivr)
 - **AI transcription:** @spotify/basic-pitch 1.0.1 (TF.js in Web Worker)
 - **Stem separation:** Demucs via FastAPI on HuggingFace Spaces (htdemucs, CPU)
-- **Storage:** IndexedDB via Dexie v2 (tables: library, settings, recordings, stems)
+- **Storage:** IndexedDB via Dexie v3 (tables: library, settings, recordings, stems, practice)
 - **PWA:** vite-plugin-pwa + Workbox (autoUpdate, CacheFirst for CDN)
 - **Deploy:** Vercel (auto-deploy on push to master) + Edge Function CORS proxy
 - **CI:** GitHub Actions (typecheck → test → build on Node 20)
@@ -36,10 +36,10 @@ Built for Samsung A52s + iRig Micro Amp. Works 100% offline after first load.
 
 ```
 src/
-├── App.tsx              # Main shell — switch-based routing (no React Router)
+├── App.tsx              # Main shell — lazy-loaded routing (React.lazy + Suspense)
 ├── main.tsx             # Entry: PWA registration + basic-pitch model prefetch
-├── components/          # 14 page components
-│   ├── TabViewer.tsx    # AlphaTab Pro (tracks, loop, count-in, zoom, speed)
+├── components/          # 16 page components + Toast system
+│   ├── TabViewer.tsx    # AlphaTab Pro (tracks, loop, count-in, zoom, speed, share)
 │   ├── TabSearch.tsx    # Songsterr search → open on Songsterr
 │   ├── Library.tsx      # IndexedDB library (search, sort, drag&drop, favorites)
 │   ├── Tuner.tsx        # Real-time pitch detection
@@ -50,16 +50,23 @@ src/
 │   ├── StemPlayer.tsx   # Offline mixer (mute/solo/volume per stem)
 │   ├── ChordLibrary.tsx # SVG chord diagrams (12 roots × 12 qualities)
 │   ├── SpeedTrainer.tsx # Progressive tempo practice
-│   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights
+│   ├── ScaleLibrary.tsx # Interactive SVG fretboard (14 scales, 5 CAGED positions)
+│   ├── EarTraining.tsx  # Interval identification game with SRS-like scoring
+│   ├── BackingTrack.tsx # Looping chord progressions (8 presets + custom)
+│   ├── PracticeJournal.tsx # Practice journal with SRS (SuperMemo-2)
+│   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights, MIDI, voice
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
+│   ├── Toast.tsx        # Global toast notification system
 │   └── ErrorBoundary.tsx
 ├── lib/                 # Core logic (no React)
 │   ├── types.ts         # DetectedNote, TabNote, Transcription, SongsterrHit...
-│   ├── db.ts            # Dexie schema v2 + CRUD helpers
+│   ├── db.ts            # Dexie schema v3 + CRUD + SRS (SuperMemo-2) helpers
 │   ├── settings.ts      # Persistent settings with pub/sub
 │   ├── audio-engine.ts  # Shared AudioContext + AmpSim chain + WAV encoding
 │   ├── basic-pitch.ts   # Persistent worker facade with idle timeout
 │   ├── midi-to-tab.ts   # Viterbi algorithm for fret placement
+│   ├── midi-controller.ts # Web MIDI API — pedal/controller → app actions
+│   ├── voice-commands.ts  # Web Speech API — French voice commands
 │   ├── chord-melody.ts  # Melody/bass extraction
 │   ├── alpha-tab-converter.ts  # Transcription → alphaTex
 │   ├── guitarTunings.ts # Tuning definitions
@@ -77,6 +84,17 @@ hf-space/
 └── requirements.txt
 ```
 
+## Key Features
+
+- **16 pages:** Search, Library, Viewer, Tuner, Metronome, Amp, Record, Transcribe, Stems, Chords, Speed Trainer, Scales, Ear Training, Backing Track, Practice Journal, Settings
+- **Lazy loading:** 9 heavy pages are code-split via React.lazy (TabViewer, Transcriber, AmpSim, StemPlayer, ChordLibrary, SpeedTrainer, ScaleLibrary, EarTraining, BackingTrack)
+- **Tab sharing:** `?tab=<base64>` URL param encodes alphaTex for link sharing
+- **Toast notifications:** `toast.success()` / `toast.error()` / `toast.info()` — global, no context needed
+- **Web MIDI:** Foot pedal support for play/pause, loop, speed control (Settings page)
+- **Voice commands:** French-language hands-free control via Web Speech API (Settings page)
+- **PWA install prompt:** Shown in Settings when `beforeinstallprompt` fires
+- **Practice Journal (SRS):** SuperMemo-2 spaced repetition for maintaining song repertoire
+
 ## Conventions
 
 - **UI language:** French
@@ -85,11 +103,12 @@ hf-space/
 - **Adding a new page:** 3 files to touch:
   1. New component in `src/components/`
   2. Add to `Page` type + `NAV` array in `Layout.tsx`
-  3. Add `case` in `App.tsx` renderPage switch
+  3. Add lazy import + `case` in `App.tsx` renderPage switch
 - **Commit style:** `type(scope): description` in English
 - **No React Router** — simple state-based tab switching
 - **No external component libraries** — pure Tailwind
 - **Minimize new deps** — tonal is already installed for music theory
+- **Toast for user feedback** — use `import { toast } from './Toast'` instead of console.warn
 
 ## Commands
 
@@ -103,10 +122,9 @@ git push origin master  # auto-deploys to Vercel
 
 ## Known Issues / Tech Debt
 
-1. AlphaTab chunk is 1.2 MB — could benefit from dynamic import code splitting
-2. TabSearch `onTabLoaded` prop is defined but unused (Songsterr GP downloads no longer public)
-3. chord-melody.ts:174 has a TODO for bass rhythm enhancement
-4. HF Space free tier sleeps after ~48h inactivity (first request takes 30-60s to wake)
+1. TabSearch `onTabLoaded` prop is defined but unused (Songsterr GP downloads no longer public)
+2. chord-melody.ts:174 has a TODO for bass rhythm enhancement
+3. HF Space free tier sleeps after ~48h inactivity (first request takes 30-60s to wake)
 
 ## Songsterr API (April 2026)
 
@@ -117,3 +135,11 @@ Old endpoint (`/a/ra/songs.json`) is DEAD (404). New endpoints:
 - GP file downloads: NO LONGER PUBLIC — use player page instead
 
 Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
+
+## Future Ideas (R&D)
+
+- **Rocksmith mode:** Real-time pitch detection synced with AlphaTab cursor (green/red note feedback)
+- **Demucs + AlphaTab sync:** Play original stems (minus guitar) in sync with tab scrolling
+- **Auto-tone matching:** FFT analysis of isolated guitar stem → auto-adjust amp EQ
+- **YouTube → Tab pipeline:** yt-dlp on backend → Demucs → basic-pitch → alphaTex
+- **Tab Healer:** Compare AI transcription vs human tab to flag potential errors

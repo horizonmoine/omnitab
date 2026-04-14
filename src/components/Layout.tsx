@@ -23,6 +23,7 @@ export type Page =
   | 'scales'
   | 'ear-training'
   | 'backing-track'
+  | 'practice'
   | 'settings';
 
 interface NavItem {
@@ -46,6 +47,7 @@ const NAV: NavItem[] = [
   { id: 'scales', label: 'Gammes', icon: '🎹' },
   { id: 'ear-training', label: 'Ear Training', icon: '👂' },
   { id: 'backing-track', label: 'Backing Track', icon: '🔁' },
+  { id: 'practice', label: 'Journal', icon: '📓' },
   { id: 'settings', label: 'Réglages', icon: '⚙️' },
 ];
 
