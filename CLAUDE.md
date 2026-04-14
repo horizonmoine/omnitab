@@ -58,6 +58,11 @@ src/
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
 │   └── ErrorBoundary.tsx
+├── hooks/               # Feature-isolated React hooks (consumed by TabViewer)
+│   ├── useRocksmith.ts    # Mic detector + hit/miss stats + flash
+│   ├── useTakeRecorder.ts # MediaRecorder + IndexedDB persistence
+│   ├── useTabHealer.ts    # basic-pitch diff + seek helper
+│   └── useStemSync.ts     # Demucs stems driven by AlphaTab transport
 ├── lib/                 # Core logic (no React)
 │   ├── types.ts         # DetectedNote, TabNote, Transcription, SongsterrHit...
 │   ├── db.ts            # Dexie schema v3 + CRUD + SRS (SuperMemo-2) helpers

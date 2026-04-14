@@ -13,15 +13,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appBus } from '../lib/event-bus';
-import { createRocksmithDetector, type RocksmithDetector, type RocksmithEvent } from '../lib/rocksmith-detector';
-import { extractBeats } from '../lib/alpha-tab-beats';
-import { transcribeAudio } from '../lib/basic-pitch';
-import { decodeAndResample } from '../lib/audio-engine';
-import { diffTabVsAudio, healerScore, type HealerFlag } from '../lib/tab-healer';
-import { createStemPlayer, type StemPlayer } from '../lib/stem-sync';
-import { startTake, type TakeRecorder } from '../lib/take-recorder';
-import { getAllStems, saveRecording, type SavedStem } from '../lib/db';
-import { toast } from './Toast';
+import { useRocksmith } from '../hooks/useRocksmith';
+import { useTakeRecorder } from '../hooks/useTakeRecorder';
+import { useTabHealer } from '../hooks/useTabHealer';
+import { useStemSync } from '../hooks/useStemSync';
 
 interface TabViewerProps {
   /** Binary data of a .gp/.gp5/.gpx file, OR a string of alphaTex / MusicXML. */
@@ -54,44 +49,14 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   const [totalBars, setTotalBars] = useState(0);
   const [shareCopied, setShareCopied] = useState(false);
 
-  // Rocksmith mode state
-  const rocksmithRef = useRef<RocksmithDetector | null>(null);
-  const [rocksmithActive, setRocksmithActive] = useState(false);
-  const [rocksmithStats, setRocksmithStats] = useState({ hits: 0, total: 0 });
-  const [lastHit, setLastHit] = useState<boolean | null>(null);
+  // Stable getter so hooks can read fresh apiRef without re-running deps.
+  const getApi = useCallback(() => apiRef.current, []);
 
-  // Stem sync state
-  const stemPlayerRef = useRef<StemPlayer | null>(null);
-  const [stemsOpen, setStemsOpen] = useState(false);
-  const [stemSongs, setStemSongs] = useState<Map<string, SavedStem[]>>(new Map());
-  const [activeStemSong, setActiveStemSong] = useState<string | null>(null);
-  const [stemMutes, setStemMutes] = useState<Record<string, boolean>>({
-    // The user's own guitar should silence the original guitar stem by default
-    // — that's the whole point of "play along to the song without the guitar".
-    guitar: true,
-  });
-
-  // Take-recorder state
-  const takeRef = useRef<TakeRecorder | null>(null);
-  const [taking, setTaking] = useState(false);
-  const [takeStartMs, setTakeStartMs] = useState(0);
-  const [takeElapsed, setTakeElapsed] = useState(0);
-
-  // Tick the elapsed counter while recording.
-  useEffect(() => {
-    if (!taking) return;
-    const id = window.setInterval(() => {
-      setTakeElapsed((performance.now() - takeStartMs) / 1000);
-    }, 250);
-    return () => window.clearInterval(id);
-  }, [taking, takeStartMs]);
-
-  // Tab Healer state
-  const [healerOpen, setHealerOpen] = useState(false);
-  const [healerRunning, setHealerRunning] = useState(false);
-  const [healerStatus, setHealerStatus] = useState('');
-  const [healerFlags, setHealerFlags] = useState<HealerFlag[] | null>(null);
-  const [healerScoreValue, setHealerScoreValue] = useState<number | null>(null);
+  // Four feature hooks — each owns its slice of state, refs and cleanup.
+  const rocksmith = useRocksmith();
+  const take = useTakeRecorder(getApi);
+  const healer = useTabHealer(getApi, activeTrack);
+  const stems = useStemSync(getApi, isPlaying, speed);
 
   // Initialize the AlphaTab API.
   useEffect(() => {
@@ -150,20 +115,12 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
         api.playerStateChanged.on((args: { state: number }) => {
           setIsPlaying(args.state === 1);
-          // Drive stems in lock-step with AlphaTab transport.
-          const sp = stemPlayerRef.current;
-          if (sp) {
-            if (args.state === 1) sp.play();
-            else sp.pause();
-          }
+          stems.onPlayState(args.state);
         });
 
         // Stem drift correction. AlphaTab fires this every ~50 ms during play.
         api.playerPositionChanged?.on?.((args: { currentTime: number }) => {
-          const sp = stemPlayerRef.current;
-          if (sp && typeof args?.currentTime === 'number') {
-            sp.syncTo(args.currentTime / 1000);
-          }
+          stems.onPositionMs(args?.currentTime);
         });
 
         api.playedBeatChanged.on((beat: {
@@ -175,14 +132,12 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             if (barIndex != null) setCurrentBar(barIndex + 1);
 
             // Rocksmith mode: push the lowest-MIDI note as the expected target.
-            const rs = rocksmithRef.current;
-            if (rs && beat.notes && beat.notes.length > 0) {
+            if (beat.notes && beat.notes.length > 0) {
               const midis = beat.notes
                 .map((n) => n.realValue)
                 .filter((m): m is number => typeof m === 'number');
               if (midis.length > 0) {
-                const lowest = Math.min(...midis);
-                rs.onBeat(lowest);
+                rocksmith.onBeat(Math.min(...midis));
               }
             }
           } catch {
@@ -252,109 +207,8 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     if (api) {
       api.playbackSpeed = pct / 100;
     }
-    stemPlayerRef.current?.setRate(pct / 100);
-  }, []);
-
-  /** Load all saved stems for a song from IndexedDB and start syncing them. */
-  const loadStemSet = useCallback(async (songTitle: string) => {
-    const stems = stemSongs.get(songTitle);
-    if (!stems || stems.length === 0) return;
-
-    // Tear down any previous set first.
-    stemPlayerRef.current?.dispose();
-    const player = createStemPlayer(
-      stems.map((s) => ({
-        name: s.stemType,
-        blob: s.blob,
-        muted: stemMutes[s.stemType] ?? false,
-      })),
-    );
-    // Mute the in-engine guitar track so we don't hear two guitars stacked.
-    const api = apiRef.current;
-    if (api && stemMutes.guitar) {
-      try {
-        api.changeTrackMute?.(api.score?.tracks ?? [], false);
-      } catch { /* ignore — older AlphaTab signatures vary */ }
-    }
-    // If the user already pressed play, kick stems off too.
-    if (isPlaying) await player.play();
-    player.setRate(speed / 100);
-    stemPlayerRef.current = player;
-    setActiveStemSong(songTitle);
-    toast.success(`Stems chargés : ${stems.map((s) => s.stemType).join(' + ')}`);
-  }, [stemSongs, stemMutes, isPlaying, speed]);
-
-  const unloadStems = useCallback(() => {
-    stemPlayerRef.current?.dispose();
-    stemPlayerRef.current = null;
-    setActiveStemSong(null);
-  }, []);
-
-  const toggleTake = useCallback(async () => {
-    // Stop branch — flush, save to IndexedDB, toast.
-    if (taking && takeRef.current) {
-      try {
-        const { blob, durationSeconds } = await takeRef.current.stop();
-        const title =
-          (apiRef.current?.score?.title as string | undefined)?.trim() ||
-          'Sans titre';
-        const stamp = new Date().toLocaleString('fr-FR', { hour12: false });
-        await saveRecording(`${title} — prise du ${stamp}`, blob, durationSeconds);
-        toast.success(
-          `🎙️ Prise sauvegardée (${durationSeconds.toFixed(1)}s, ${(blob.size / 1024).toFixed(0)} KB)`,
-        );
-      } catch (err) {
-        toast.error(`Échec sauvegarde : ${(err as Error).message}`);
-      } finally {
-        takeRef.current = null;
-        setTaking(false);
-        setTakeElapsed(0);
-      }
-      return;
-    }
-
-    // Start branch.
-    try {
-      takeRef.current = await startTake();
-      setTakeStartMs(performance.now());
-      setTakeElapsed(0);
-      setTaking(true);
-      toast.info('🎙️ Enregistrement en cours…');
-    } catch (err) {
-      toast.error(`Micro indisponible : ${(err as Error).message}`);
-    }
-  }, [taking]);
-
-  // Cancel any in-flight take if the viewer unmounts mid-recording.
-  useEffect(() => () => { takeRef.current?.cancel(); }, []);
-
-  const toggleStemMute = useCallback((name: string) => {
-    setStemMutes((prev) => {
-      const next = { ...prev, [name]: !prev[name] };
-      stemPlayerRef.current?.setMuted(name, next[name]);
-      return next;
-    });
-  }, []);
-
-  // When the panel opens, list available stem-songs from IndexedDB.
-  useEffect(() => {
-    if (!stemsOpen) return;
-    let cancelled = false;
-    getAllStems().then((all) => {
-      if (cancelled) return;
-      const grouped = new Map<string, SavedStem[]>();
-      for (const s of all) {
-        const arr = grouped.get(s.songTitle) ?? [];
-        arr.push(s);
-        grouped.set(s.songTitle, arr);
-      }
-      setStemSongs(grouped);
-    });
-    return () => { cancelled = true; };
-  }, [stemsOpen]);
-
-  // Always tear down stems on unmount.
-  useEffect(() => () => { stemPlayerRef.current?.dispose(); }, []);
+    stems.setRate(pct / 100);
+  }, [stems]);
 
   const switchTrack = useCallback((index: number) => {
     setActiveTrack(index);
@@ -365,78 +219,6 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
       api.renderTracks([track]);
     }
   }, []);
-
-  const toggleRocksmith = useCallback(async () => {
-    if (rocksmithActive) {
-      rocksmithRef.current?.stop();
-      rocksmithRef.current = null;
-      setRocksmithActive(false);
-      return;
-    }
-    try {
-      const detector = createRocksmithDetector();
-      detector.onEvent((e: RocksmithEvent) => {
-        setLastHit(e.hit);
-        setRocksmithStats(detector.getStats());
-        // Flash clears after 400ms.
-        setTimeout(() => setLastHit(null), 400);
-      });
-      await detector.start();
-      rocksmithRef.current = detector;
-      setRocksmithActive(true);
-      setRocksmithStats({ hits: 0, total: 0 });
-      toast.success('Rocksmith mode activé — branche l\'iRig !');
-    } catch (err) {
-      toast.error(`Micro indisponible: ${(err as Error).message}`);
-    }
-  }, [rocksmithActive]);
-
-  // Clean up Rocksmith detector on unmount.
-  useEffect(() => () => { rocksmithRef.current?.stop(); }, []);
-
-  /**
-   * Run Tab Healer: extract beats from the currently active track, transcribe
-   * the user-uploaded reference audio with basic-pitch, and diff the two.
-   */
-  const runHealer = useCallback(async (file: File) => {
-    const api = apiRef.current;
-    if (!api?.score?.tracks) {
-      toast.error('La tab n\'est pas encore chargée.');
-      return;
-    }
-    const track = api.score.tracks[activeTrack];
-    if (!track) return;
-
-    setHealerRunning(true);
-    setHealerFlags(null);
-    setHealerScoreValue(null);
-    try {
-      const beats = extractBeats(track);
-      if (beats.length === 0) {
-        toast.error('Aucune note exploitable dans la piste sélectionnée.');
-        return;
-      }
-
-      setHealerStatus('Décodage de l\'audio…');
-      const audioBuffer = await decodeAndResample(file, 22050);
-
-      const detected = await transcribeAudio(audioBuffer, undefined, ({ status }) =>
-        setHealerStatus(status),
-      );
-
-      setHealerStatus('Comparaison tab vs audio…');
-      const flags = diffTabVsAudio(beats, detected);
-      const score = healerScore(beats.length, flags);
-      setHealerFlags(flags);
-      setHealerScoreValue(score);
-      setHealerStatus(`✅ ${flags.length} signalements sur ${beats.length} beats`);
-    } catch (err) {
-      toast.error(`Healer a échoué : ${(err as Error).message}`);
-      setHealerStatus('');
-    } finally {
-      setHealerRunning(false);
-    }
-  }, [activeTrack]);
 
   const toggleLoop = useCallback(() => {
     setLooping((prev) => {
@@ -539,22 +321,22 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
           {/* Take recorder */}
           <button
-            onClick={toggleTake}
+            onClick={take.toggle}
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
-              taking
+              take.taking
                 ? 'bg-amp-error text-white animate-pulse'
                 : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
             }`}
-            title={taking ? 'Arrêter et sauvegarder la prise' : 'Enregistrer une prise (mic)'}
+            title={take.taking ? 'Arrêter et sauvegarder la prise' : 'Enregistrer une prise (mic)'}
           >
-            {taking ? `● ${takeElapsed.toFixed(0)}s` : '🎙️'}
+            {take.taking ? `● ${take.elapsedSeconds.toFixed(0)}s` : '🎙️'}
           </button>
 
           {/* Stem-sync toggle */}
           <button
-            onClick={() => setStemsOpen((o) => !o)}
+            onClick={() => stems.setOpen((o) => !o)}
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
-              stemsOpen || activeStemSong
+              stems.open || stems.active
                 ? 'bg-amp-accent text-amp-bg'
                 : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
             }`}
@@ -565,9 +347,9 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
           {/* Tab Healer toggle */}
           <button
-            onClick={() => setHealerOpen((o) => !o)}
+            onClick={() => healer.setOpen((o) => !o)}
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
-              healerOpen
+              healer.open
                 ? 'bg-amp-accent text-amp-bg'
                 : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
             }`}
@@ -578,9 +360,9 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
           {/* Rocksmith toggle */}
           <button
-            onClick={toggleRocksmith}
+            onClick={rocksmith.toggle}
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
-              rocksmithActive
+              rocksmith.active
                 ? 'bg-amp-success text-white animate-pulse'
                 : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
             }`}
@@ -699,7 +481,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
       </div>
 
       {/* Stem-sync panel */}
-      {stemsOpen && (
+      {stems.open && (
         <div className="bg-amp-panel border-b border-amp-border px-3 py-3">
           <div className="flex items-center justify-between mb-2">
             <div>
@@ -709,9 +491,9 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
                 Sépare l'audio depuis la page Transcrire pour en ajouter.
               </p>
             </div>
-            {activeStemSong && (
+            {stems.active && (
               <button
-                onClick={unloadStems}
+                onClick={stems.unload}
                 className="text-xs text-amp-error hover:underline"
               >
                 ✕ Décharger
@@ -719,43 +501,43 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             )}
           </div>
 
-          {stemSongs.size === 0 ? (
+          {stems.songs.size === 0 ? (
             <p className="text-xs text-amp-muted italic">
               Aucun stem sauvegardé. Va dans Transcrire → "Séparer tous les stems".
             </p>
           ) : (
             <>
               <div className="flex flex-wrap gap-1 mb-3">
-                {Array.from(stemSongs.keys()).map((title) => (
+                {Array.from(stems.songs.keys()).map((title) => (
                   <button
                     key={title}
-                    onClick={() => loadStemSet(title)}
+                    onClick={() => stems.load(title)}
                     className={`px-3 py-1 rounded text-xs transition-colors ${
-                      activeStemSong === title
+                      stems.active === title
                         ? 'bg-amp-accent text-amp-bg font-bold'
                         : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
                     }`}
                   >
-                    {title} ({stemSongs.get(title)?.length})
+                    {title} ({stems.songs.get(title)?.length})
                   </button>
                 ))}
               </div>
 
-              {activeStemSong && (
+              {stems.active && (
                 <div className="flex flex-wrap gap-2">
-                  {stemPlayerRef.current?.handles.map((h) => (
+                  {stems.handles.map((h) => (
                     <label
                       key={h.name}
                       className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs cursor-pointer ${
-                        stemMutes[h.name]
+                        stems.mutes[h.name]
                           ? 'bg-amp-bg/40 text-amp-muted line-through'
                           : 'bg-amp-panel-2 text-amp-text'
                       }`}
                     >
                       <input
                         type="checkbox"
-                        checked={!stemMutes[h.name]}
-                        onChange={() => toggleStemMute(h.name)}
+                        checked={!stems.mutes[h.name]}
+                        onChange={() => stems.toggleMute(h.name)}
                         className="accent-amp-accent"
                       />
                       {h.name}
@@ -769,7 +551,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
       )}
 
       {/* Tab Healer panel */}
-      {healerOpen && (
+      {healer.open && (
         <div className="bg-amp-panel border-b border-amp-border px-3 py-3">
           <div className="flex items-center justify-between gap-3 mb-2">
             <div>
@@ -779,18 +561,18 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
                 pour repérer les notes douteuses.
               </p>
             </div>
-            {healerScoreValue !== null && (
+            {healer.score !== null && (
               <div
                 className={`px-3 py-1.5 rounded font-mono text-sm ${
-                  healerScoreValue > 0.8
+                  healer.score > 0.8
                     ? 'bg-green-500/20 text-green-400'
-                    : healerScoreValue > 0.5
+                    : healer.score > 0.5
                       ? 'bg-yellow-500/20 text-yellow-400'
                       : 'bg-red-500/20 text-red-400'
                 }`}
                 title="Confiance globale de la tab"
               >
-                Fiabilité : {Math.round(healerScoreValue * 100)}%
+                Fiabilité : {Math.round(healer.score * 100)}%
               </div>
             )}
           </div>
@@ -798,33 +580,33 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           <div className="flex items-center gap-2 flex-wrap">
             <label className="inline-block">
               <span className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-3 py-1.5 rounded text-xs cursor-pointer inline-block">
-                {healerRunning ? '⏳ Analyse…' : '📂 Choisir un audio'}
+                {healer.running ? '⏳ Analyse…' : '📂 Choisir un audio'}
               </span>
               <input
                 type="file"
                 accept="audio/*"
-                disabled={healerRunning}
+                disabled={healer.running}
                 onChange={(e) => {
                   const f = e.target.files?.[0];
-                  if (f) runHealer(f);
+                  if (f) healer.run(f);
                   e.target.value = '';
                 }}
                 className="hidden"
               />
             </label>
-            {healerStatus && (
+            {healer.status && (
               <span className="text-xs text-amp-muted" aria-live="polite">
-                {healerStatus}
+                {healer.status}
               </span>
             )}
           </div>
 
-          {healerFlags && healerFlags.length > 0 && (
+          {healer.flags && healer.flags.length > 0 && (
             <ul className="mt-3 max-h-40 overflow-y-auto bg-amp-bg/40 rounded border border-amp-border divide-y divide-amp-border">
-              {healerFlags.slice(0, 100).map((f, i) => (
+              {healer.flags.slice(0, 100).map((f, i) => (
                 <li
                   key={i}
-                  onClick={() => apiRef.current?.timePosition && (apiRef.current.timePosition = f.timeSeconds * 1000)}
+                  onClick={() => healer.seek(f.timeSeconds)}
                   className={`px-3 py-1.5 text-xs cursor-pointer hover:bg-amp-panel-2 ${
                     f.severity === 'error'
                       ? 'text-red-400'
@@ -840,15 +622,15 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
                   {f.message}
                 </li>
               ))}
-              {healerFlags.length > 100 && (
+              {healer.flags.length > 100 && (
                 <li className="px-3 py-1.5 text-xs text-amp-muted italic">
-                  …{healerFlags.length - 100} autres signalements masqués
+                  …{healer.flags.length - 100} autres signalements masqués
                 </li>
               )}
             </ul>
           )}
 
-          {healerFlags && healerFlags.length === 0 && (
+          {healer.flags && healer.flags.length === 0 && (
             <div className="mt-3 text-xs text-green-400">
               ✓ Aucun désaccord détecté — la tab semble fiable.
             </div>
@@ -878,13 +660,13 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
         <div ref={containerRef} className="min-h-full" />
 
         {/* Rocksmith HUD overlay */}
-        {rocksmithActive && (
+        {rocksmith.active && (
           <>
             {/* Hit/miss flash over the whole viewport */}
-            {lastHit !== null && (
+            {rocksmith.lastHit !== null && (
               <div
                 className={`pointer-events-none absolute inset-0 z-20 transition-opacity duration-300 ${
-                  lastHit ? 'bg-green-500/20' : 'bg-red-500/25'
+                  rocksmith.lastHit ? 'bg-green-500/20' : 'bg-red-500/25'
                 }`}
               />
             )}
@@ -895,21 +677,21 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
                 🎸 Rocksmith
               </div>
               <div className="font-mono text-3xl text-amp-accent leading-none">
-                {rocksmithStats.total > 0
-                  ? Math.round((rocksmithStats.hits / rocksmithStats.total) * 100)
+                {rocksmith.stats.total > 0
+                  ? Math.round((rocksmith.stats.hits / rocksmith.stats.total) * 100)
                   : 0}
                 <span className="text-base text-amp-muted">%</span>
               </div>
               <div className="font-mono text-xs text-amp-muted mt-1">
-                {rocksmithStats.hits} / {rocksmithStats.total} notes
+                {rocksmith.stats.hits} / {rocksmith.stats.total} notes
               </div>
-              {lastHit !== null && (
+              {rocksmith.lastHit !== null && (
                 <div
                   className={`mt-2 text-center font-bold text-sm ${
-                    lastHit ? 'text-green-400' : 'text-red-400'
+                    rocksmith.lastHit ? 'text-green-400' : 'text-red-400'
                   }`}
                 >
-                  {lastHit ? '✓ HIT' : '✗ MISS'}
+                  {rocksmith.lastHit ? '✓ HIT' : '✗ MISS'}
                 </div>
               )}
             </div>
