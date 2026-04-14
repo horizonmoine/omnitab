@@ -12,6 +12,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { appBus } from '../lib/event-bus';
+import { createRocksmithDetector, type RocksmithDetector, type RocksmithEvent } from '../lib/rocksmith-detector';
+import { toast } from './Toast';
 
 interface TabViewerProps {
   /** Binary data of a .gp/.gp5/.gpx file, OR a string of alphaTex / MusicXML. */
@@ -43,6 +46,12 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   const [currentBar, setCurrentBar] = useState(0);
   const [totalBars, setTotalBars] = useState(0);
   const [shareCopied, setShareCopied] = useState(false);
+
+  // Rocksmith mode state
+  const rocksmithRef = useRef<RocksmithDetector | null>(null);
+  const [rocksmithActive, setRocksmithActive] = useState(false);
+  const [rocksmithStats, setRocksmithStats] = useState({ hits: 0, total: 0 });
+  const [lastHit, setLastHit] = useState<boolean | null>(null);
 
   // Initialize the AlphaTab API.
   useEffect(() => {
@@ -103,10 +112,25 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           setIsPlaying(args.state === 1);
         });
 
-        api.playedBeatChanged.on((beat: { voice?: { bar?: { index?: number } } }) => {
+        api.playedBeatChanged.on((beat: {
+          voice?: { bar?: { index?: number } };
+          notes?: Array<{ realValue?: number }>;
+        }) => {
           try {
             const barIndex = beat?.voice?.bar?.index;
             if (barIndex != null) setCurrentBar(barIndex + 1);
+
+            // Rocksmith mode: push the lowest-MIDI note as the expected target.
+            const rs = rocksmithRef.current;
+            if (rs && beat.notes && beat.notes.length > 0) {
+              const midis = beat.notes
+                .map((n) => n.realValue)
+                .filter((m): m is number => typeof m === 'number');
+              if (midis.length > 0) {
+                const lowest = Math.min(...midis);
+                rs.onBeat(lowest);
+              }
+            }
           } catch {
             /* ok */
           }
@@ -186,6 +210,34 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     }
   }, []);
 
+  const toggleRocksmith = useCallback(async () => {
+    if (rocksmithActive) {
+      rocksmithRef.current?.stop();
+      rocksmithRef.current = null;
+      setRocksmithActive(false);
+      return;
+    }
+    try {
+      const detector = createRocksmithDetector();
+      detector.onEvent((e: RocksmithEvent) => {
+        setLastHit(e.hit);
+        setRocksmithStats(detector.getStats());
+        // Flash clears after 400ms.
+        setTimeout(() => setLastHit(null), 400);
+      });
+      await detector.start();
+      rocksmithRef.current = detector;
+      setRocksmithActive(true);
+      setRocksmithStats({ hits: 0, total: 0 });
+      toast.success('Rocksmith mode activé — branche l\'iRig !');
+    } catch (err) {
+      toast.error(`Micro indisponible: ${(err as Error).message}`);
+    }
+  }, [rocksmithActive]);
+
+  // Clean up Rocksmith detector on unmount.
+  useEffect(() => () => { rocksmithRef.current?.stop(); }, []);
+
   const toggleLoop = useCallback(() => {
     setLooping((prev) => {
       const next = !prev;
@@ -225,6 +277,18 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [togglePlay, updateSpeed, speed, toggleLoop]);
+
+  // Wire the global event bus (MIDI pedals + voice commands).
+  useEffect(() => {
+    const offs = [
+      appBus.on('play-pause', togglePlay),
+      appBus.on('stop', stop),
+      appBus.on('loop-toggle', toggleLoop),
+      appBus.on('speed-down', () => updateSpeed(Math.max(25, speed - 5))),
+      appBus.on('speed-up', () => updateSpeed(Math.min(200, speed + 5))),
+    ];
+    return () => { for (const off of offs) off(); };
+  }, [togglePlay, stop, toggleLoop, updateSpeed, speed]);
 
   return (
     <div className="flex flex-col h-full">
@@ -271,6 +335,19 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             title="Boucle (L)"
           >
             🔁
+          </button>
+
+          {/* Rocksmith toggle */}
+          <button
+            onClick={toggleRocksmith}
+            className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
+              rocksmithActive
+                ? 'bg-amp-success text-white animate-pulse'
+                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
+            }`}
+            title="Mode Rocksmith — feedback temps réel via iRig"
+          >
+            🎸
           </button>
 
           {/* Bar counter */}
@@ -402,6 +479,45 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           </div>
         )}
         <div ref={containerRef} className="min-h-full" />
+
+        {/* Rocksmith HUD overlay */}
+        {rocksmithActive && (
+          <>
+            {/* Hit/miss flash over the whole viewport */}
+            {lastHit !== null && (
+              <div
+                className={`pointer-events-none absolute inset-0 z-20 transition-opacity duration-300 ${
+                  lastHit ? 'bg-green-500/20' : 'bg-red-500/25'
+                }`}
+              />
+            )}
+
+            {/* Stats panel, top-right */}
+            <div className="absolute top-3 right-3 z-30 bg-amp-bg/90 border border-amp-border rounded-lg shadow-lg px-4 py-3 min-w-[140px] backdrop-blur">
+              <div className="text-[10px] uppercase tracking-wide text-amp-muted mb-1">
+                🎸 Rocksmith
+              </div>
+              <div className="font-mono text-3xl text-amp-accent leading-none">
+                {rocksmithStats.total > 0
+                  ? Math.round((rocksmithStats.hits / rocksmithStats.total) * 100)
+                  : 0}
+                <span className="text-base text-amp-muted">%</span>
+              </div>
+              <div className="font-mono text-xs text-amp-muted mt-1">
+                {rocksmithStats.hits} / {rocksmithStats.total} notes
+              </div>
+              {lastHit !== null && (
+                <div
+                  className={`mt-2 text-center font-bold text-sm ${
+                    lastHit ? 'text-green-400' : 'text-red-400'
+                  }`}
+                >
+                  {lastHit ? '✓ HIT' : '✗ MISS'}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Keyboard shortcut hint */}

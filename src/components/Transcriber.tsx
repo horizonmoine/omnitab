@@ -29,10 +29,12 @@ import { transcriptionToAlphaTex } from '../lib/alpha-tab-converter';
 import { TUNINGS, applyCapo } from '../lib/guitarTunings';
 import { addTabToLibrary, saveStem } from '../lib/db';
 import {
+  fetchYoutubeAudio,
   isBackendAvailable,
   separateStem,
   type BackendHealth,
 } from '../lib/demucs-client';
+import { toast } from './Toast';
 import { extractMelodyAndAccompaniment } from '../lib/chord-melody';
 import { detectTempo } from '../lib/tempo-detection';
 import {
@@ -97,6 +99,32 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
   // Stem separation state
   const [separating, setSeparating] = useState(false);
   const [separateProgress, setSeparateProgress] = useState('');
+
+  // YouTube import state
+  const [ytUrl, setYtUrl] = useState('');
+  const [ytFetching, setYtFetching] = useState(false);
+
+  const importYoutube = async () => {
+    if (!ytUrl.trim()) return;
+    if (!backend) {
+      toast.error('Backend requis pour l\'import YouTube (voir Réglages).');
+      return;
+    }
+    setYtFetching(true);
+    try {
+      const { blob, title } = await fetchYoutubeAudio(ytUrl.trim());
+      setFile(blob);
+      setLabel(title);
+      setResultTex(null);
+      setError(null);
+      toast.success(`Audio YouTube récupéré (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
+      setYtUrl('');
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setYtFetching(false);
+    }
+  };
 
   // Au montage ET à chaque changement d'URL backend (Réglages) : re-ping.
   // Ça permet à l'utilisateur de changer `demucsUrl` dans la page Réglages
@@ -351,6 +379,36 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
           onChange={handleFile}
           className="block w-full max-w-md text-amp-text file:bg-amp-accent file:hover:bg-amp-accent-hover file:text-amp-bg file:font-bold file:px-4 file:py-2 file:rounded file:border-0 file:cursor-pointer file:mr-3"
         />
+
+        {/* YouTube import — requires the HF Space backend */}
+        <div className="mt-3 max-w-md">
+          <div className="text-xs text-amp-muted mb-1">
+            Ou coller une URL YouTube (max 10 min) :
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="url"
+              value={ytUrl}
+              onChange={(e) => setYtUrl(e.target.value)}
+              placeholder="https://www.youtube.com/watch?v=…"
+              disabled={ytFetching || !backend}
+              className="flex-1 bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text text-sm font-mono focus:outline-none focus:border-amp-accent disabled:opacity-50"
+            />
+            <button
+              onClick={importYoutube}
+              disabled={!ytUrl.trim() || ytFetching || !backend}
+              className="bg-amp-accent hover:bg-amp-accent-hover disabled:bg-amp-muted disabled:cursor-not-allowed text-amp-bg font-bold px-4 py-2 rounded text-sm transition-colors whitespace-nowrap"
+            >
+              {ytFetching ? '⏳…' : '📥 Importer'}
+            </button>
+          </div>
+          {!backend && (
+            <div className="text-xs text-amp-muted mt-1">
+              Backend requis — configure l'URL dans Réglages.
+            </div>
+          )}
+        </div>
+
         {file && (
           <p className="mt-2 text-sm text-amp-muted">
             📄 {label} ({((file.size ?? 0) / 1024).toFixed(0)} KB)

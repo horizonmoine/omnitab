@@ -129,3 +129,31 @@ export async function separateStem(
   onProgress?.({ progress: 1, status: 'Stem reçu.' });
   return blob;
 }
+
+/**
+ * Ask the backend to extract audio from a YouTube URL via yt-dlp.
+ *
+ * The server caps videos at 10 minutes (configurable via OMNITAB_YT_MAX_DURATION_S)
+ * to keep the Space responsive. Returns the MP3 blob plus a best-effort title
+ * lifted from yt-dlp's metadata (via the `X-Omnitab-Title` response header).
+ */
+export async function fetchYoutubeAudio(
+  url: string,
+): Promise<{ blob: Blob; title: string }> {
+  const baseUrl = getBackendUrl();
+  if (!baseUrl) throw new Error('Aucun backend configuré (voir Réglages).');
+
+  const endpoint = `${baseUrl}/youtube-audio?url=${encodeURIComponent(url)}`;
+  const res = await fetch(endpoint);
+
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(
+      `YouTube a échoué (HTTP ${res.status})${detail ? ` : ${detail}` : ''}`,
+    );
+  }
+
+  const blob = await res.blob();
+  const title = res.headers.get('X-Omnitab-Title') || 'YouTube audio';
+  return { blob, title };
+}

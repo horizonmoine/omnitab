@@ -11,6 +11,7 @@
 
 import { lazy, Suspense, useEffect, useState } from 'react';
 import { Layout, type Page } from './components/Layout';
+import { appBus } from './lib/event-bus';
 import { TabSearch } from './components/TabSearch';
 import { Library } from './components/Library';
 import { Tuner } from './components/Tuner';
@@ -80,6 +81,16 @@ export function App() {
   useEffect(() => {
     sessionStorage.setItem('omnitab.page', page);
   }, [page]);
+
+  // Wire navigation actions from the global bus (voice "accordeur" → tuner, etc.).
+  useEffect(() => {
+    const offs = [
+      appBus.on('navigate-tuner', () => setPage('tuner')),
+      appBus.on('navigate-metronome', () => setPage('metronome')),
+      appBus.on('navigate-viewer', () => setPage('viewer')),
+    ];
+    return () => { for (const off of offs) off(); };
+  }, []);
 
   // Hand-off helpers ────────────────────────────────────────────────
   const openInViewer = (data: ArrayBuffer | string, title: string) => {

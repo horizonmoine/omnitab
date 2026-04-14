@@ -14,6 +14,9 @@ import {
   type AmpSimChain,
   type AmpSimParams,
 } from '../lib/audio-engine';
+import { appBus } from '../lib/event-bus';
+import { analyseTone, suggestEq } from '../lib/auto-tone';
+import { toast } from './Toast';
 
 interface Preset {
   name: string;
@@ -100,6 +103,16 @@ export function AmpSim() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Voice-command driven voicing changes.
+  useEffect(() => {
+    const offs = [
+      appBus.on('amp-clean', () => setParams((p) => ({ ...p, voicing: 'clean' }))),
+      appBus.on('amp-crunch', () => setParams((p) => ({ ...p, voicing: 'crunch' }))),
+      appBus.on('amp-lead', () => setParams((p) => ({ ...p, voicing: 'lead' }))),
+    ];
+    return () => { for (const off of offs) off(); };
+  }, []);
+
   const rebuildChain = () => {
     if (!sourceRef.current) return;
     const ctx = getAudioContext();
@@ -142,6 +155,28 @@ export function AmpSim() {
     value: AmpSimParams[K],
   ) => {
     setParams((p) => ({ ...p, [key]: value }));
+  };
+
+  // Auto-tone: analyse a reference audio file and auto-set the EQ.
+  const [autoToning, setAutoToning] = useState(false);
+  const handleAutoTone = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    setAutoToning(true);
+    try {
+      const analysis = await analyseTone(f);
+      const eq = suggestEq(analysis);
+      setParams((p) => ({ ...p, bass: eq.bass, mid: eq.mid, treble: eq.treble }));
+      toast.success(
+        `Auto-tone : B ${eq.bass.toFixed(1)}dB / M ${eq.mid.toFixed(1)}dB / T ${eq.treble.toFixed(1)}dB`,
+      );
+    } catch (err) {
+      toast.error(`Auto-tone a échoué : ${(err as Error).message}`);
+    } finally {
+      setAutoToning(false);
+      // Reset the input so re-uploading the same file re-triggers.
+      e.target.value = '';
+    }
   };
 
   return (
@@ -190,6 +225,26 @@ export function AmpSim() {
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Auto-tone matching */}
+      <div className="mb-6 max-w-md">
+        <h3 className="text-sm font-bold text-amp-muted mb-2">Auto-tone</h3>
+        <p className="text-xs text-amp-muted mb-2">
+          Charge un stem de guitare (mp3/wav) : l'EQ s'ajuste pour approcher son timbre.
+        </p>
+        <label className="inline-block">
+          <span className="bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-3 py-1.5 rounded text-sm transition-colors cursor-pointer inline-block">
+            {autoToning ? '⏳ Analyse…' : '📊 Analyser un stem'}
+          </span>
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={handleAutoTone}
+            disabled={autoToning}
+            className="hidden"
+          />
+        </label>
       </div>
 
       {/* Voicing */}

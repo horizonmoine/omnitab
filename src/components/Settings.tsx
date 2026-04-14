@@ -17,11 +17,17 @@ interface BeforeInstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { TUNINGS } from '../lib/guitarTunings';
 import { DEFAULT_COST_WEIGHTS } from '../lib/midi-to-tab';
-import { MidiController, type MidiAction } from '../lib/midi-controller';
-import { VoiceCommandEngine, type VoiceAction } from '../lib/voice-commands';
+import {
+  startMidi,
+  stopMidi,
+  startVoice,
+  stopVoice,
+  subscribeInputRouter,
+  type InputRouterStatus,
+} from '../lib/input-router';
 import { toast } from './Toast';
 import {
   DEFAULT_SETTINGS,
@@ -46,73 +52,37 @@ export function Settings() {
   const settings = useSettings();
   const [saveFlash, setSaveFlash] = useState<string | null>(null);
 
-  // ───── MIDI controller ─────
-  const midiRef = useRef<MidiController | null>(null);
-  const [midiDevices, setMidiDevices] = useState<string[]>([]);
-  const [midiConnected, setMidiConnected] = useState(false);
-  const [lastMidiAction, setLastMidiAction] = useState<string | null>(null);
+  // ───── Input router status (MIDI + Voice) ─────
+  const [routerStatus, setRouterStatus] = useState<InputRouterStatus>({
+    midiConnected: false,
+    midiDevices: [],
+    voiceListening: false,
+  });
 
-  const connectMidi = useCallback(async () => {
-    const ctrl = new MidiController();
-    if (!ctrl.isSupported) {
-      toast.error('Web MIDI non supporté sur ce navigateur.');
+  useEffect(() => subscribeInputRouter(setRouterStatus), []);
+
+  const toggleMidi = useCallback(async () => {
+    if (routerStatus.midiConnected) {
+      stopMidi();
       return;
     }
-    ctrl.onAction = (action: MidiAction) => {
-      setLastMidiAction(action);
-      toast.info(`MIDI: ${action}`);
-    };
-    ctrl.onDeviceChange = (devices) => setMidiDevices(devices);
-    const devices = await ctrl.connect();
-    midiRef.current = ctrl;
-    setMidiDevices(devices);
-    setMidiConnected(true);
-    toast.success(`MIDI connecté (${devices.length} appareil${devices.length > 1 ? 's' : ''})`);
-  }, []);
-
-  const disconnectMidi = useCallback(() => {
-    midiRef.current?.disconnect();
-    midiRef.current = null;
-    setMidiConnected(false);
-    setMidiDevices([]);
-    setLastMidiAction(null);
-  }, []);
-
-  useEffect(() => () => { midiRef.current?.disconnect(); }, []);
-
-  // ───── Voice commands ─────
-  const voiceRef = useRef<VoiceCommandEngine | null>(null);
-  const [voiceListening, setVoiceListening] = useState(false);
-  const [lastVoiceTranscript, setLastVoiceTranscript] = useState<string | null>(null);
-  const [lastVoiceAction, setLastVoiceAction] = useState<string | null>(null);
+    try {
+      const devices = await startMidi();
+      toast.success(`MIDI connecté (${devices.length} appareil${devices.length > 1 ? 's' : ''})`);
+    } catch (err) {
+      toast.error((err as Error).message);
+    }
+  }, [routerStatus.midiConnected]);
 
   const toggleVoice = useCallback(() => {
-    if (voiceListening) {
-      voiceRef.current?.stop();
-      voiceRef.current = null;
-      setVoiceListening(false);
+    if (routerStatus.voiceListening) {
+      stopVoice();
       return;
     }
-    const engine = new VoiceCommandEngine();
-    if (!engine.isSupported) {
-      toast.error('Reconnaissance vocale non supportée.');
-      return;
-    }
-    engine.onAction = (action: VoiceAction) => {
-      setLastVoiceAction(action);
-      toast.info(`Voix: ${action}`);
-    };
-    engine.onTranscript = (text) => setLastVoiceTranscript(text);
-    engine.onError = (err) => toast.error(`Voix: ${err}`);
-    const ok = engine.start();
-    if (ok) {
-      voiceRef.current = engine;
-      setVoiceListening(true);
-      toast.success('Commandes vocales activées');
-    }
-  }, [voiceListening]);
-
-  useEffect(() => () => { voiceRef.current?.stop(); }, []);
+    const ok = startVoice();
+    if (ok) toast.success('Commandes vocales activées');
+    else toast.error('Reconnaissance vocale non supportée.');
+  }, [routerStatus.voiceListening]);
 
   // ───── PWA Install ─────
   const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -280,31 +250,26 @@ export function Settings() {
       {/* ───── MIDI ───── */}
       <Section
         title="Pédalier MIDI"
-        subtitle="Connecte un pédalier MIDI USB ou Bluetooth pour contrôler l'app au pied."
+        subtitle="Connecte un pédalier MIDI USB ou Bluetooth. Les actions restent actives sur toutes les pages."
       >
         <div className="flex items-center gap-3">
           <button
-            onClick={midiConnected ? disconnectMidi : connectMidi}
+            onClick={toggleMidi}
             className={`px-4 py-2 rounded text-sm font-bold transition-colors ${
-              midiConnected
+              routerStatus.midiConnected
                 ? 'bg-amp-error/20 text-amp-error border border-amp-error/40'
                 : 'bg-amp-accent text-amp-bg'
             }`}
           >
-            {midiConnected ? 'Déconnecter' : 'Connecter MIDI'}
+            {routerStatus.midiConnected ? 'Déconnecter' : 'Connecter MIDI'}
           </button>
-          {midiConnected && (
+          {routerStatus.midiConnected && (
             <span className="text-xs text-amp-success">Connecté</span>
           )}
         </div>
-        {midiDevices.length > 0 && (
+        {routerStatus.midiDevices.length > 0 && (
           <div className="text-xs text-amp-muted mt-2">
-            Appareils : {midiDevices.join(', ')}
-          </div>
-        )}
-        {lastMidiAction && (
-          <div className="text-xs text-amp-accent mt-1">
-            Dernière action : {lastMidiAction}
+            Appareils : {routerStatus.midiDevices.join(', ')}
           </div>
         )}
         <div className="text-xs text-amp-muted mt-2">
@@ -315,33 +280,26 @@ export function Settings() {
       {/* ───── Commandes vocales ───── */}
       <Section
         title="Commandes vocales"
-        subtitle="Contrôle mains libres via le micro. Dis 'joue', 'pause', 'boucle', 'ralentis'..."
+        subtitle="Contrôle mains libres via le micro (FR). Actives sur toutes les pages."
       >
         <div className="flex items-center gap-3">
           <button
             onClick={toggleVoice}
             className={`px-4 py-2 rounded text-sm font-bold transition-colors ${
-              voiceListening
+              routerStatus.voiceListening
                 ? 'bg-amp-error/20 text-amp-error border border-amp-error/40 animate-pulse'
                 : 'bg-amp-accent text-amp-bg'
             }`}
           >
-            {voiceListening ? '🎙️ Arrêter' : '🎙️ Activer'}
+            {routerStatus.voiceListening ? '🎙️ Arrêter' : '🎙️ Activer'}
           </button>
-          {voiceListening && (
+          {routerStatus.voiceListening && (
             <span className="text-xs text-amp-success">En écoute...</span>
           )}
         </div>
-        {lastVoiceTranscript && (
-          <div className="text-xs text-amp-muted mt-2">
-            Entendu : « {lastVoiceTranscript} »
-          </div>
-        )}
-        {lastVoiceAction && (
-          <div className="text-xs text-amp-accent mt-1">
-            Action : {lastVoiceAction}
-          </div>
-        )}
+        <div className="text-xs text-amp-muted mt-2">
+          Dis : "joue", "pause", "boucle", "ralentis", "accélère", "clean", "crunch", "disto", "accordeur", "métronome".
+        </div>
       </Section>
 
       {/* ───── PWA Install ───── */}

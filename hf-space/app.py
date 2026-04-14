@@ -207,3 +207,85 @@ def separate_stream(
         media_type="audio/wav",
         headers={"Content-Disposition": f'attachment; filename="{stem}.wav"'},
     )
+
+
+# ── YouTube audio extraction ─────────────────────────────────────────────
+#
+# Pulls audio from a YouTube URL via yt-dlp. The PWA then feeds the result
+# into basic-pitch (for auto-transcription) or into Demucs (for stem
+# separation). We deliberately do NOT chain them here — each model call is
+# heavy and the user may only want the raw audio. Keeping concerns split
+# also means the HF Space doesn't time-out on long clips.
+#
+# Safety:
+#   - 10-minute cap: no feature films, no podcasts.
+#   - MP3 / 128kbps: good enough for pitch detection, tiny over 4G.
+
+YT_MAX_DURATION_S = int(os.environ.get("OMNITAB_YT_MAX_DURATION_S", "600"))
+
+
+@app.get("/youtube-audio")
+def youtube_audio(url: str = Query(..., description="YouTube URL")):
+    """Extract audio track from a YouTube video as MP3."""
+    try:
+        import yt_dlp
+    except ImportError:
+        raise HTTPException(500, "yt-dlp not installed on backend")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        out_template = str(Path(tmpdir) / "audio.%(ext)s")
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": out_template,
+            "quiet": True,
+            "noplaylist": True,
+            "max_downloads": 1,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": "128",
+                }
+            ],
+        }
+
+        try:
+            with yt_dlp.YoutubeDL(opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+                duration = info.get("duration") or 0
+                if duration > YT_MAX_DURATION_S:
+                    raise HTTPException(
+                        413,
+                        f"video too long ({duration}s) — max {YT_MAX_DURATION_S}s",
+                    )
+                title = info.get("title", "audio")
+                ydl.download([url])
+        except HTTPException:
+            raise
+        except Exception as exc:
+            log.exception("yt-dlp failed")
+            raise HTTPException(500, f"youtube extraction failed: {exc}")
+
+        mp3_path = Path(tmpdir) / "audio.mp3"
+        if not mp3_path.exists():
+            # yt-dlp may have picked a different ext before post-processing.
+            found = list(Path(tmpdir).glob("audio.*"))
+            if not found:
+                raise HTTPException(500, "no output from yt-dlp")
+            mp3_path = found[0]
+
+        data = mp3_path.read_bytes()
+
+    log.info("/youtube-audio  url=%s  title=%s  bytes=%d", url, title, len(data))
+
+    # Sanitize filename for Content-Disposition header (ASCII only).
+    safe_title = "".join(c if c.isalnum() or c in " -_" else "_" for c in title)[:80].strip() or "audio"
+
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type="audio/mpeg",
+        headers={
+            "Content-Disposition": f'attachment; filename="{safe_title}.mp3"',
+            "X-Omnitab-Title": safe_title,
+        },
+    )
