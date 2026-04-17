@@ -16,11 +16,9 @@ import { transcribeAudio } from '../lib/basic-pitch';
 import { decodeAndResample } from '../lib/audio-engine';
 import { diffTabVsAudio, healerScore, type HealerFlag } from '../lib/tab-healer';
 import { toast } from '../components/Toast';
+import type { AlphaTabApi } from '../lib/alphatab-types';
 
-interface AlphaTabApiLike {
-  score?: { tracks?: unknown[] };
-  timePosition?: number;
-}
+type AlphaTabApiLike = Pick<AlphaTabApi, 'score' | 'timePosition'>;
 
 export interface UseTabHealer {
   open: boolean;

@@ -13,6 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { appBus } from '../lib/event-bus';
+import type { AlphaTabApi } from '../lib/alphatab-types';
 import { useRocksmith } from '../hooks/useRocksmith';
 import { useTakeRecorder } from '../hooks/useTakeRecorder';
 import { useTabHealer } from '../hooks/useTabHealer';
@@ -34,8 +35,7 @@ interface TrackInfo {
 
 export function TabViewer({ source, onReady }: TabViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const apiRef = useRef<any>(null);
+  const apiRef = useRef<AlphaTabApi | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
@@ -180,7 +180,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
   // Apply zoom changes.
   useEffect(() => {
     const api = apiRef.current;
-    if (!api || !api.settings) return;
+    if (!api?.settings?.display) return;
     api.settings.display.scale = zoom;
     api.updateSettings();
     api.render();

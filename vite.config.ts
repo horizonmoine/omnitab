@@ -90,6 +90,10 @@ export default defineConfig({
   build: {
     target: 'es2022',
     sourcemap: true,
+    // AlphaTab is 1.2 MB minified and lives in its own lazy-loaded chunk.
+    // Raise the threshold so we only hear about chunks that genuinely grew
+    // — not the known big-lib one we already split out.
+    chunkSizeWarningLimit: 1500,
     rollupOptions: {
       output: {
         // Split heavy libs into their own chunks so the initial HTML payload

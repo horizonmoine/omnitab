@@ -18,6 +18,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { createStemPlayer, type StemPlayer, type StemHandle } from '../lib/stem-sync';
 import { getAllStems, type SavedStem } from '../lib/db';
 import { toast } from '../components/Toast';
+import type { AlphaTabApi } from '../lib/alphatab-types';
 
 export interface UseStemSync {
   open: boolean;
@@ -40,9 +41,7 @@ export interface UseStemSync {
   onPositionMs: (currentTimeMs: number) => void;
 }
 
-interface AlphaTabApiLike {
-  score?: { tracks?: unknown[] };
-}
+type AlphaTabApiLike = Pick<AlphaTabApi, 'score'>;
 
 export function useStemSync(
   getApi: () => AlphaTabApiLike | null,

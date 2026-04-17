@@ -16,10 +16,11 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { startTake, type TakeRecorder } from '../lib/take-recorder';
 import { saveRecording } from '../lib/db';
 import { toast } from '../components/Toast';
+import type { AlphaTabApi } from '../lib/alphatab-types';
 
-interface AlphaTabApiLike {
-  score?: { title?: string };
-}
+// We only consume `score.title` — keep the hook's contract minimal so the
+// consumer can pass anything that carries this slice of AlphaTab's API.
+type AlphaTabApiLike = Pick<AlphaTabApi, 'score'>;
 
 export interface UseTakeRecorder {
   /** True while a take is being captured. */
