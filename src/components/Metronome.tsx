@@ -16,6 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
+import { Button, Card, PageHeader, SectionLabel } from './primitives';
 
 type TimeSig = '2/4' | '3/4' | '4/4' | '6/8';
 
@@ -172,10 +173,10 @@ export function Metronome() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Metronome</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Tempo précis via Web Audio. Espace pour start/stop.
-      </p>
+      <PageHeader
+        title="Métronome"
+        subtitle="Tempo précis via Web Audio. Espace pour start/stop."
+      />
 
       {/* Beat indicator */}
       <div className="flex justify-center gap-3 mb-8">
@@ -196,8 +197,9 @@ export function Metronome() {
       </div>
 
       {/* BPM display + controls */}
-      <div className="flex flex-col items-center bg-amp-panel border border-amp-border rounded-lg p-8 mb-6">
+      <Card padding="p-8" className="flex flex-col items-center mb-6">
         <div className="flex items-baseline gap-2 mb-6">
+          {/* tabular-nums = no layout jitter when BPM digits change width (88 → 100). */}
           <input
             type="number"
             min={40}
@@ -206,7 +208,8 @@ export function Metronome() {
             onChange={(e) =>
               setBpm(Math.max(40, Math.min(300, Number(e.target.value) || 120)))
             }
-            className="w-24 text-center text-5xl font-mono bg-transparent text-amp-text border-b-2 border-amp-border focus:border-amp-accent outline-none"
+            className="w-24 text-center text-5xl font-mono tabular-nums font-bold leading-none bg-transparent text-amp-text border-b-2 border-amp-border focus:border-amp-accent outline-none"
+            aria-label="Tempo en BPM"
           />
           <span className="text-amp-muted text-lg">BPM</span>
         </div>
@@ -218,68 +221,71 @@ export function Metronome() {
           value={bpm}
           onChange={(e) => setBpm(Number(e.target.value))}
           className="w-full max-w-sm mb-6 accent-amp-accent"
+          aria-label="Tempo (curseur)"
         />
 
         {/* Play / Stop */}
-        <button
-          onClick={toggle}
-          className={`px-10 py-3 rounded-full text-lg font-bold transition-colors ${
-            playing
-              ? 'bg-amp-error hover:bg-red-600 text-white'
-              : 'bg-amp-accent hover:bg-amp-accent-hover text-amp-bg'
-          }`}
-        >
-          {playing ? '⏹ Stop' : '▶ Start'}
-        </button>
-      </div>
+        {playing ? (
+          <Button
+            variant="pillStop"
+            onClick={toggle}
+            aria-label="Arrêter le métronome"
+          >
+            <span aria-hidden="true">⏹ </span>Stop
+          </Button>
+        ) : (
+          <Button
+            variant="pill"
+            onClick={toggle}
+            aria-label="Démarrer le métronome"
+          >
+            <span aria-hidden="true">▶ </span>Start
+          </Button>
+        )}
+      </Card>
 
       {/* Time signature + Tap tempo */}
       <div className="grid grid-cols-2 gap-4">
         {/* Time signature */}
-        <div className="bg-amp-panel border border-amp-border rounded-lg p-4">
-          <h3 className="text-sm font-bold text-amp-muted mb-3 uppercase tracking-wide">
-            Signature
-          </h3>
+        <Card>
+          <SectionLabel>Signature</SectionLabel>
           <div className="flex gap-2 flex-wrap">
             {TIME_SIGS.map((ts) => (
-              <button
+              <Button
                 key={ts.label}
+                variant={timeSig === ts.label ? 'chipOn' : 'chip'}
                 onClick={() => {
                   setTimeSig(ts.label);
                   // Reset beat index so we don't go out of bounds.
                   beatIndexRef.current = 0;
                 }}
-                className={`px-4 py-2 rounded font-mono text-sm transition-colors ${
-                  timeSig === ts.label
-                    ? 'bg-amp-accent text-amp-bg font-bold'
-                    : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-                }`}
+                className="font-mono"
+                aria-pressed={timeSig === ts.label}
               >
                 {ts.label}
-              </button>
+              </Button>
             ))}
           </div>
-        </div>
+        </Card>
 
         {/* Tap tempo */}
-        <div className="bg-amp-panel border border-amp-border rounded-lg p-4">
-          <h3 className="text-sm font-bold text-amp-muted mb-3 uppercase tracking-wide">
-            Tap Tempo
-          </h3>
-          <button
+        <Card>
+          <SectionLabel>Tap Tempo</SectionLabel>
+          <Button
+            variant="secondary"
             onClick={handleTap}
-            className="w-full bg-amp-panel-2 hover:bg-amp-border text-amp-text font-bold py-4 rounded text-lg transition-colors active:bg-amp-accent active:text-amp-bg"
+            // Override secondary's py-1.5/text-sm → big, full-width tap target.
+            className="w-full py-4 text-lg active:bg-amp-accent active:text-amp-bg"
+            aria-label="Tap tempo"
           >
             TAP
-          </button>
-        </div>
+          </Button>
+        </Card>
       </div>
 
       {/* Presets */}
-      <div className="mt-6 bg-amp-panel border border-amp-border rounded-lg p-4">
-        <h3 className="text-sm font-bold text-amp-muted mb-3 uppercase tracking-wide">
-          Presets
-        </h3>
+      <Card className="mt-6">
+        <SectionLabel>Presets</SectionLabel>
         <div className="flex gap-2 flex-wrap">
           {[
             { label: 'Lent', bpm: 60 },
@@ -288,16 +294,16 @@ export function Metronome() {
             { label: 'Rapide', bpm: 160 },
             { label: 'Presto', bpm: 200 },
           ].map((p) => (
-            <button
+            <Button
               key={p.label}
+              variant="secondary"
               onClick={() => setBpm(p.bpm)}
-              className="bg-amp-panel-2 hover:bg-amp-border text-amp-text px-3 py-1.5 rounded text-sm transition-colors"
             >
               {p.label} ({p.bpm})
-            </button>
+            </Button>
           ))}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

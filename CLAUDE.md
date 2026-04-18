@@ -58,6 +58,7 @@ src/
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
 │   ├── HealerOverlay.tsx # Coloured dots over AlphaTab glyphs (click-to-seek)
+│   ├── primitives.tsx   # Design system: Button, Input, Card, SectionLabel, PageHeader, Readout, ErrorStrip
 │   └── ErrorBoundary.tsx
 ├── hooks/               # Feature-isolated React hooks (consumed by TabViewer)
 │   ├── useRocksmith.ts    # Mic detector + hit/miss stats + flash
@@ -123,12 +124,20 @@ hf-space/
 - **No external component libraries** — pure Tailwind
 - **Minimize new deps** — tonal is already installed for music theory
 - **Toast for user feedback** — use `import { toast } from './Toast'` instead of console.warn
+- **Design primitives** — import from `./primitives` before hand-rolling panels/buttons. Exports:
+  - `Button` — 7 variants: `primary` (amber), `destructive` (red), `secondary` (panel-2), `chip` / `chipOn` (filter toggles), `pill` / `pillStop` (round start/stop CTAs)
+  - `Input` — text field with amber focus ring
+  - `Card` — `bg-amp-panel` + border + rounded wrapper (`padding` prop, `interactive` for hover-on-amber rows)
+  - `SectionLabel` — the UPPERCASE-tracked muted caption pattern (presets / signature / tap tempo)
+  - `PageHeader` — `title` + optional `subtitle` at the top of every page
+  - `Readout` — mono + **tabular-nums** number display. Use for ANY live-updating number (BPM, Hz, cents, timer) to avoid digit-width jitter
+  - `ErrorStrip` — the `/20` tinted red alert panel
 
 ## Commands
 
 ```bash
 npm run build        # tsc -b && vite build
-npx vitest run       # run 47 tests
+npx vitest run       # run 72 tests
 npx tsc --noEmit     # typecheck only
 npm run dev          # dev server on :5173
 git push origin master  # auto-deploys to Vercel

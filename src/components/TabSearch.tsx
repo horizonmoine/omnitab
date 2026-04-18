@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { searchSongsterr } from '../lib/songsterr-api';
 import type { SongsterrHit } from '../lib/types';
+import { Button, Card, ErrorStrip, Input, PageHeader } from './primitives';
 
 export function TabSearch() {
   const [query, setQuery] = useState('');
@@ -49,39 +50,33 @@ export function TabSearch() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-4">Rechercher une tablature</h2>
-      <p className="text-amp-muted mb-6 text-sm">
-        Plus d'1 million de tabs vérifiées via l'API publique Songsterr.
-      </p>
+      <PageHeader
+        title="Rechercher une tablature"
+        subtitle="Plus d'1 million de tabs vérifiées via l'API publique Songsterr."
+      />
 
       <form onSubmit={handleSearch} className="flex gap-2 mb-6">
-        <input
+        <Input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="ex: Stairway to Heaven, Jeff Buckley Hallelujah…"
-          className="flex-1 bg-amp-panel border border-amp-border rounded px-4 py-2 text-amp-text placeholder-amp-muted focus:outline-none focus:border-amp-accent"
+          className="flex-1"
         />
-        <button
-          type="submit"
-          disabled={isSearching}
-          className="bg-amp-accent hover:bg-amp-accent-hover disabled:bg-amp-muted text-amp-bg font-bold px-6 py-2 rounded transition-colors"
-        >
+        <Button type="submit" disabled={isSearching}>
           {isSearching ? '…' : 'Chercher'}
-        </button>
+        </Button>
       </form>
 
-      {error && (
-        <div className="mb-4 p-3 bg-amp-error/20 border border-amp-error rounded text-amp-error text-sm">
-          {error}
-        </div>
-      )}
+      {error && <div className="mb-4 max-w-none"><ErrorStrip>{error}</ErrorStrip></div>}
 
       <div className="space-y-2">
         {results.map((hit) => (
-          <div
+          <Card
             key={hit.id}
-            className="bg-amp-panel border border-amp-border rounded p-3 flex items-center justify-between hover:border-amp-accent transition-colors"
+            interactive
+            padding="p-3"
+            className="flex items-center justify-between"
           >
             <div className="min-w-0 flex-1">
               <div className="font-semibold text-amp-text truncate">
@@ -97,13 +92,14 @@ export function TabSearch() {
                 )}
               </div>
             </div>
-            <button
+            <Button
+              variant="secondary"
               onClick={() => openOnSongsterr(hit)}
-              className="ml-3 bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-4 py-1.5 rounded text-sm transition-colors"
+              className="ml-3"
             >
               Ouvrir
-            </button>
-          </div>
+            </Button>
+          </Card>
         ))}
       </div>
     </div>

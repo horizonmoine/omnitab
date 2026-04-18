@@ -11,6 +11,7 @@ import { createTunerDetector } from '../lib/pitch-detection';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
 import { getSettings } from '../lib/settings';
 import type { TunerReading } from '../lib/types';
+import { Button, ErrorStrip, PageHeader, Readout } from './primitives';
 
 export function Tuner() {
   const [active, setActive] = useState(false);
@@ -60,10 +61,11 @@ export function Tuner() {
 
   return (
     <div className="h-full overflow-y-auto p-6 flex flex-col items-center">
-      <h2 className="text-2xl font-bold mb-2">Accordeur</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Plug-in la guitare via l'iRig (canal Clean) et joue une corde à vide.
-      </p>
+      <PageHeader
+        title="Accordeur"
+        subtitle="Plug-in la guitare via l'iRig (canal Clean) et joue une corde à vide."
+      />
+
 
       {/* Big note display. aria-live lets screen readers announce pitch
           changes without the user having to re-focus the region. */}
@@ -82,14 +84,15 @@ export function Tuner() {
             : 'Accordeur en attente'
         }
       >
-        <div
-          className={`text-6xl font-mono font-bold transition-colors ${
+        <Readout
+          size="hero"
+          className={`transition-colors ${
             inTune ? 'text-amp-success' : 'text-amp-text'
           }`}
           aria-hidden="true"
         >
           {reading?.note ?? '—'}
-        </div>
+        </Readout>
         <div className="text-sm text-amp-muted mt-1" aria-hidden="true">
           {reading ? `${reading.frequency.toFixed(1)} Hz` : 'En attente…'}
         </div>
@@ -146,28 +149,22 @@ export function Tuner() {
 
       <div className="mt-6 flex gap-3">
         {!active ? (
-          <button
-            onClick={start}
-            aria-label="Démarrer l'accordeur"
-            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-6 py-2 rounded transition-colors"
-          >
+          <Button onClick={start} aria-label="Démarrer l'accordeur">
             <span aria-hidden="true">🎤 </span>Démarrer
-          </button>
+          </Button>
         ) : (
-          <button
+          <Button
+            variant="destructive"
             onClick={stop}
             aria-label="Arrêter l'accordeur"
-            className="bg-amp-error hover:bg-red-600 text-white font-bold px-6 py-2 rounded transition-colors"
           >
             <span aria-hidden="true">⏹ </span>Arrêter
-          </button>
+          </Button>
         )}
       </div>
 
       {error && (
-        <div className="mt-4 p-3 bg-amp-error/20 border border-amp-error rounded text-amp-error text-sm max-w-md text-center">
-          {error}
-        </div>
+        <ErrorStrip className="mt-4 max-w-md text-center">{error}</ErrorStrip>
       )}
     </div>
   );
