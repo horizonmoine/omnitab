@@ -37,6 +37,29 @@ export interface AlphaTabBeatEvent {
   notes?: Array<{ realValue?: number }>;
 }
 
+/** Pixel rectangle AlphaTab returns for every renderable element. */
+export interface AlphaTabBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/** One beat's on-screen bounding boxes. */
+export interface AlphaTabBeatBounds {
+  /** Covers only the notation glyph — what the user actually sees. */
+  visualBounds: AlphaTabBounds;
+}
+
+/**
+ * Hierarchical lookup from AlphaTab that maps Beat objects back to their
+ * rendered pixel coordinates. Only populated after `renderFinished`. The
+ * Healer overlay calls `findBeat(beatRef)` for every flag to get a dot position.
+ */
+export interface AlphaTabBoundsLookup {
+  findBeat(beat: unknown): AlphaTabBeatBounds | null;
+}
+
 export interface AlphaTabApi {
   // ─── Data & settings ───────────────────────────────────────────────
   /** `null` before `scoreLoaded` fires, `undefined` after destroy. */
@@ -67,6 +90,13 @@ export interface AlphaTabApi {
   /** Load an alphaTex / MusicXML string. */
   tex(source: string): void;
 
+  /**
+   * Lookup of rendered coordinates keyed by Beat. `null` before the first
+   * `renderFinished` fires. Used by the Healer overlay to pin flag dots to
+   * the exact glyph position.
+   */
+  boundsLookup?: AlphaTabBoundsLookup | null;
+
   // ─── Events ────────────────────────────────────────────────────────
   scoreLoaded: AlphaTabEvent<AlphaTabScore>;
   playerStateChanged: AlphaTabEvent<{ state: number }>;
@@ -74,4 +104,9 @@ export interface AlphaTabApi {
   playerPositionChanged?: AlphaTabEvent<{ currentTime: number }>;
   playedBeatChanged: AlphaTabEvent<AlphaTabBeatEvent>;
   error: AlphaTabEvent<unknown>;
+  /**
+   * Fires every time the score finishes rendering (initial load, resize,
+   * track change, zoom). The overlay must recompute positions on each fire.
+   */
+  renderFinished: AlphaTabEvent<unknown>;
 }

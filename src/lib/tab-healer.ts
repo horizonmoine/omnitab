@@ -24,6 +24,13 @@ export interface TabBeat {
   timeSeconds: number;
   /** MIDI numbers of all notes on this beat. */
   midis: number[];
+  /**
+   * Opaque reference to the underlying AlphaTab Beat. Carried through the
+   * healer pipeline so the overlay can call `api.boundsLookup.findBeat(ref)`
+   * to position flag markers directly on the rendered score. Not every
+   * producer will populate this (it's optional for unit tests).
+   */
+  beatRef?: unknown;
 }
 
 export type FlagSeverity = 'info' | 'warning' | 'error';
@@ -37,6 +44,8 @@ export interface HealerFlag {
   detectedMidis: number[];
   /** Human-readable blurb. */
   message: string;
+  /** Opaque AlphaTab Beat, forwarded from `TabBeat` for overlay positioning. */
+  beatRef?: unknown;
 }
 
 const TIME_TOLERANCE_S = 0.15;
@@ -74,6 +83,7 @@ export function diffTabVsAudio(
         expectedMidis: beat.midis,
         detectedMidis: [],
         message: 'Aucune note détectée dans l\'audio ici — la tab joue-t-elle vraiment quelque chose ?',
+        beatRef: beat.beatRef,
       });
       continue;
     }
@@ -90,6 +100,7 @@ export function diffTabVsAudio(
         expectedMidis: beat.midis,
         detectedMidis,
         message: `Désaccord complet : tab → ${beat.midis.join(',')} vs audio → ${detectedMidis.join(',')}.`,
+        beatRef: beat.beatRef,
       });
     } else if (unmatched.length > 0) {
       flags.push({
@@ -98,6 +109,7 @@ export function diffTabVsAudio(
         expectedMidis: beat.midis,
         detectedMidis,
         message: `Partiellement différent : ${unmatched.length}/${beat.midis.length} notes non trouvées.`,
+        beatRef: beat.beatRef,
       });
     }
   }

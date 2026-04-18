@@ -16,7 +16,10 @@ const track = (beats: ReturnType<typeof beat>[]) => ({
 describe('alpha-tab-beats', () => {
   it('converts playbackStart ms → seconds', () => {
     const result = extractBeats(track([beat(1500, [60])]));
-    expect(result).toEqual([{ timeSeconds: 1.5, midis: [60] }]);
+    // toMatchObject ignores the `beatRef` field — its presence is covered
+    // by its own dedicated test lower in this file.
+    expect(result).toMatchObject([{ timeSeconds: 1.5, midis: [60] }]);
+    expect(result).toHaveLength(1);
   });
 
   it('skips rest beats', () => {
@@ -71,6 +74,14 @@ describe('alpha-tab-beats', () => {
     expect(extractBeats({})).toEqual([]);
     expect(extractBeats({ staves: [] })).toEqual([]);
     expect(extractBeats({ staves: [{ bars: [] }] })).toEqual([]);
+  });
+
+  it('preserves a reference to the source Beat on beatRef', () => {
+    // The overlay relies on `beatRef` being the SAME object instance we fed
+    // in, so `api.boundsLookup.findBeat(beatRef)` can resolve it.
+    const sourceBeat = beat(0, [60]);
+    const result = extractBeats(track([sourceBeat]));
+    expect(result[0].beatRef).toBe(sourceBeat);
   });
 
   it('filters out notes with non-numeric realValue', () => {

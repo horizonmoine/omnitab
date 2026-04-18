@@ -57,6 +57,7 @@ src/
 │   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights, MIDI, voice
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
+│   ├── HealerOverlay.tsx # Coloured dots over AlphaTab glyphs (click-to-seek)
 │   └── ErrorBoundary.tsx
 ├── hooks/               # Feature-isolated React hooks (consumed by TabViewer)
 │   ├── useRocksmith.ts    # Mic detector + hit/miss stats + flash
@@ -135,9 +136,8 @@ git push origin master  # auto-deploys to Vercel
 
 ## Known Issues / Tech Debt
 
-1. TabSearch `onTabLoaded` prop is defined but unused (Songsterr GP downloads no longer public)
-2. chord-melody.ts:174 has a TODO for bass rhythm enhancement
-3. HF Space free tier sleeps after ~48h inactivity (first request takes 30-60s to wake)
+1. chord-melody.ts:174 has a TODO for bass rhythm enhancement
+2. HF Space free tier sleeps after ~48h inactivity (first request takes 30-60s to wake)
 
 ## Songsterr API (April 2026)
 
@@ -156,6 +156,6 @@ Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
 - ✅ **YouTube → audio pipeline:** yt-dlp on HF Space → MP3 → user feeds into Transcriber/Demucs
 - ✅ **Tab Healer:** Compare basic-pitch transcription vs human tab to flag potential errors
 - ✅ **Demucs + AlphaTab sync:** Stems play in lock-step with the tab cursor, mute-per-stem, speed mirrored
+- ✅ **Healer overlay:** Coloured dots pinned to beat glyphs via `api.boundsLookup.findBeat`, click-to-seek
 - **Auto-tone v2:** Live mic comparison vs reference, not just static FFT
-- **Healer overlay:** Render flag indicators directly on the AlphaTab cursor (currently a list)
 - **Setlist mode:** Chain multiple tabs from the library with auto-progression

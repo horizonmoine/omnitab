@@ -63,7 +63,10 @@ export function extractBeats(track: AlphaTabTrack): TabBeat[] {
             typeof beat.playbackStart === 'number'
               ? beat.playbackStart / 1000
               : 0;
-          out.push({ timeSeconds: t, midis });
+          // `beat` is the live AlphaTab Beat — we stash the reference so the
+          // healer overlay can later call `api.boundsLookup.findBeat(ref)`
+          // and turn each flag into a pixel position on the rendered score.
+          out.push({ timeSeconds: t, midis, beatRef: beat });
         }
       }
     }

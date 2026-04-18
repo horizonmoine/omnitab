@@ -1,19 +1,17 @@
 /**
  * Songsterr search UI.
  *
- * Searches against the public Songsterr REST endpoint, then on click
- * downloads the .gp/.gpx file and stores it in the IndexedDB library.
+ * Searches the public Songsterr REST endpoint and opens the player page
+ * on songsterr.com in a new tab. We used to support downloading the .gp
+ * file and opening it in our own viewer, but Songsterr removed that
+ * public endpoint in 2024, so this is now a pure outbound link.
  */
 
 import { useState } from 'react';
 import { searchSongsterr } from '../lib/songsterr-api';
 import type { SongsterrHit } from '../lib/types';
 
-interface TabSearchProps {
-  onTabLoaded?: (data: ArrayBuffer, title: string) => void;
-}
-
-export function TabSearch({ onTabLoaded: _onTabLoaded }: TabSearchProps) {
+export function TabSearch() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);

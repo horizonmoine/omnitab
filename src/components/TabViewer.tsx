@@ -18,6 +18,7 @@ import { useRocksmith } from '../hooks/useRocksmith';
 import { useTakeRecorder } from '../hooks/useTakeRecorder';
 import { useTabHealer } from '../hooks/useTabHealer';
 import { useStemSync } from '../hooks/useStemSync';
+import { HealerOverlay } from './HealerOverlay';
 
 interface TabViewerProps {
   /** Binary data of a .gp/.gp5/.gpx file, OR a string of alphaTex / MusicXML. */
@@ -657,7 +658,22 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             {error}
           </div>
         )}
-        <div ref={containerRef} className="min-h-full" />
+        {/*
+          Scroll-linked wrapper. AlphaTab's `boundsLookup` coordinates live in
+          this relative coord space, so the Healer overlay must share it and
+          sit OUTSIDE the viewport's relative parent (otherwise dots stop
+          scrolling with the score).
+        */}
+        <div className="relative min-h-full">
+          <div ref={containerRef} className="min-h-full" />
+          {healer.flags && healer.flags.length > 0 && (
+            <HealerOverlay
+              flags={healer.flags}
+              getApi={getApi}
+              onSeek={healer.seek}
+            />
+          )}
+        </div>
 
         {/* Rocksmith HUD overlay */}
         {rocksmith.active && (
