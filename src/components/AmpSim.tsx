@@ -17,6 +17,22 @@ import {
 import { appBus } from '../lib/event-bus';
 import { analyseTone, suggestEq } from '../lib/auto-tone';
 import { toast } from './Toast';
+import {
+  Button,
+  Card,
+  ErrorStrip,
+  Knob,
+  PageHeader,
+  SectionLabel,
+} from './primitives';
+
+// ── Knob value formatters ──────────────────────────────────────────
+// Module-level so they aren't recreated on every render. EQ uses a
+// signed display ("+5.0 dB" / "-3.0 dB") because the sign tells you at a
+// glance whether you're boosting or cutting — standard amp UX. Master
+// shows percent because 0..1 reads weirdly to humans.
+const fmtDb = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(1)} dB`;
+const fmtPercent = (v: number) => `${Math.round(v * 100)}%`;
 
 interface Preset {
   name: string;
@@ -78,6 +94,10 @@ export function AmpSim() {
   const streamRef = useRef<MediaStream | null>(null);
   const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const chainRef = useRef<AmpSimChain | null>(null);
+  // Hidden file-input ref — lets us trigger the picker from a <Button>
+  // primitive instead of wrapping it in a <label> (which would swallow
+  // the button's click before it can bubble). Same pattern as Library.
+  const autoToneInputRef = useRef<HTMLInputElement>(null);
 
   // Update node parameters live when sliders move (no rebuild needed for EQ/master).
   useEffect(() => {
@@ -181,169 +201,134 @@ export function AmpSim() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Simulateur d'Ampli</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        ⚠ Évite les larsens : utilise un casque, pas les haut-parleurs de l'ordi.
-      </p>
+      <PageHeader
+        title="Simulateur d'ampli"
+        subtitle="⚠ Évite les larsens : utilise un casque, pas les haut-parleurs de l'ordi."
+      />
 
-      {/* On/Off */}
+      {/* On/Off — pulled out of the card so it's the obvious primary action */}
       <div className="mb-6">
         {!active ? (
-          <button
-            onClick={start}
-            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-6 py-2 rounded transition-colors"
-          >
-            🔌 Activer
-          </button>
+          <Button onClick={start} aria-label="Activer l'ampli">
+            <span aria-hidden="true">🔌 </span>Activer
+          </Button>
         ) : (
-          <button
+          <Button
+            variant="destructive"
             onClick={stop}
-            className="bg-amp-error hover:bg-red-600 text-white font-bold px-6 py-2 rounded transition-colors"
+            aria-label="Désactiver l'ampli"
           >
-            ⏹ Désactiver
-          </button>
+            <span aria-hidden="true">⏹ </span>Désactiver
+          </Button>
         )}
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-amp-error/20 border border-amp-error rounded text-amp-error text-sm">
-          {error}
-        </div>
-      )}
+      {error && <ErrorStrip className="mb-4">{error}</ErrorStrip>}
 
-      {/* Presets */}
-      <div className="mb-6">
-        <h3 className="text-sm font-bold text-amp-muted mb-2">Presets</h3>
-        <div className="flex gap-2 flex-wrap">
+      {/* Single card holds preset + voicing + knobs (per design mockup) */}
+      <Card padding="p-5" className="max-w-2xl">
+        <SectionLabel>Preset</SectionLabel>
+        <div className="flex gap-2 flex-wrap mb-5">
           {PRESETS.map((preset) => (
-            <button
+            <Button
               key={preset.name}
+              variant="chip"
               onClick={() => setParams(preset.params)}
-              className="bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-3 py-1.5 rounded text-sm transition-colors"
             >
               {preset.name}
-            </button>
+            </Button>
           ))}
         </div>
-      </div>
 
-      {/* Auto-tone matching */}
-      <div className="mb-6 max-w-md">
-        <h3 className="text-sm font-bold text-amp-muted mb-2">Auto-tone</h3>
-        <p className="text-xs text-amp-muted mb-2">
-          Charge un stem de guitare (mp3/wav) : l'EQ s'ajuste pour approcher son timbre.
-        </p>
-        <label className="inline-block">
-          <span className="bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-3 py-1.5 rounded text-sm transition-colors cursor-pointer inline-block">
-            {autoToning ? '⏳ Analyse…' : '📊 Analyser un stem'}
-          </span>
-          <input
-            type="file"
-            accept="audio/*"
-            onChange={handleAutoTone}
-            disabled={autoToning}
-            className="hidden"
-          />
-        </label>
-      </div>
-
-      {/* Voicing */}
-      <div className="mb-6">
-        <h3 className="text-sm font-bold text-amp-muted mb-2">Voicing</h3>
-        <div className="flex gap-2">
+        <SectionLabel>Voicing</SectionLabel>
+        <div className="flex gap-2 mb-6 flex-wrap">
           {(['clean', 'crunch', 'lead'] as const).map((v) => (
-            <button
+            <Button
               key={v}
+              variant={params.voicing === v ? 'chipOn' : 'chip'}
               onClick={() => updateParam('voicing', v)}
-              className={`px-4 py-1.5 rounded text-sm transition-colors ${
-                params.voicing === v
-                  ? 'bg-amp-accent text-amp-bg'
-                  : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-              }`}
+              aria-pressed={params.voicing === v}
             >
               {v}
-            </button>
+            </Button>
           ))}
         </div>
-      </div>
 
-      {/* Knobs */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-6 max-w-2xl">
-        <Knob
-          label="Drive"
-          value={params.drive}
-          min={0}
-          max={10}
-          step={0.1}
-          onChange={(v) => updateParam('drive', v)}
-        />
-        <Knob
-          label="Bass"
-          value={params.bass}
-          min={-12}
-          max={12}
-          step={0.5}
-          unit="dB"
-          onChange={(v) => updateParam('bass', v)}
-        />
-        <Knob
-          label="Mid"
-          value={params.mid}
-          min={-12}
-          max={12}
-          step={0.5}
-          unit="dB"
-          onChange={(v) => updateParam('mid', v)}
-        />
-        <Knob
-          label="Treble"
-          value={params.treble}
-          min={-12}
-          max={12}
-          step={0.5}
-          unit="dB"
-          onChange={(v) => updateParam('treble', v)}
-        />
-        <Knob
-          label="Master"
-          value={params.master}
-          min={0}
-          max={1}
-          step={0.01}
-          onChange={(v) => updateParam('master', v)}
+        <SectionLabel>EQ &amp; gain</SectionLabel>
+        <div className="flex gap-6 justify-between flex-wrap">
+          {/* Drive in red — high-gain "danger zone" colour. */}
+          <Knob
+            label="Drive"
+            value={params.drive}
+            min={0}
+            max={10}
+            step={0.1}
+            color="#ef4444"
+            onChange={(v) => updateParam('drive', v)}
+          />
+          <Knob
+            label="Bass"
+            value={params.bass}
+            min={-12}
+            max={12}
+            step={0.5}
+            format={fmtDb}
+            onChange={(v) => updateParam('bass', v)}
+          />
+          <Knob
+            label="Mid"
+            value={params.mid}
+            min={-12}
+            max={12}
+            step={0.5}
+            format={fmtDb}
+            onChange={(v) => updateParam('mid', v)}
+          />
+          <Knob
+            label="Treble"
+            value={params.treble}
+            min={-12}
+            max={12}
+            step={0.5}
+            format={fmtDb}
+            onChange={(v) => updateParam('treble', v)}
+          />
+          {/* Master in green — output "go" colour, mirrors the design. */}
+          <Knob
+            label="Master"
+            value={params.master}
+            min={0}
+            max={1}
+            step={0.01}
+            format={fmtPercent}
+            color="#10b981"
+            onChange={(v) => updateParam('master', v)}
+          />
+        </div>
+      </Card>
+
+      {/* Auto-tone — not in the design mockup but a real OmniTab feature. */}
+      <div className="mt-6 max-w-2xl">
+        <SectionLabel>Auto-tone</SectionLabel>
+        <p className="text-xs text-amp-muted mb-3">
+          Charge un stem de guitare (mp3/wav) : l'EQ s'ajuste pour approcher son timbre.
+        </p>
+        <Button
+          variant="secondary"
+          onClick={() => autoToneInputRef.current?.click()}
+          disabled={autoToning}
+        >
+          {autoToning ? '⏳ Analyse…' : '📊 Analyser un stem'}
+        </Button>
+        <input
+          ref={autoToneInputRef}
+          type="file"
+          accept="audio/*"
+          onChange={handleAutoTone}
+          disabled={autoToning}
+          className="hidden"
         />
       </div>
     </div>
-  );
-}
-
-interface KnobProps {
-  label: string;
-  value: number;
-  min: number;
-  max: number;
-  step: number;
-  unit?: string;
-  onChange: (v: number) => void;
-}
-
-function Knob({ label, value, min, max, step, unit, onChange }: KnobProps) {
-  return (
-    <label className="flex flex-col items-center bg-amp-panel border border-amp-border rounded p-3">
-      <div className="text-sm text-amp-muted mb-1">{label}</div>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => onChange(Number(e.target.value))}
-        className="w-full accent-amp-accent"
-      />
-      <div className="font-mono text-amp-text text-sm mt-1">
-        {value.toFixed(step < 1 ? 1 : 0)}
-        {unit ? ` ${unit}` : ''}
-      </div>
-    </label>
   );
 }

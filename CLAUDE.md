@@ -58,7 +58,7 @@ src/
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
 │   ├── HealerOverlay.tsx # Coloured dots over AlphaTab glyphs (click-to-seek)
-│   ├── primitives.tsx   # Design system: Button, Input, Card, SectionLabel, PageHeader, Readout, ErrorStrip
+│   ├── primitives.tsx   # Design system: Button, Input, Card, SectionLabel, PageHeader, Readout, ErrorStrip, Knob
 │   └── ErrorBoundary.tsx
 ├── hooks/               # Feature-isolated React hooks (consumed by TabViewer)
 │   ├── useRocksmith.ts    # Mic detector + hit/miss stats + flash
@@ -127,11 +127,12 @@ hf-space/
 - **Design primitives** — import from `./primitives` before hand-rolling panels/buttons. Exports:
   - `Button` — 7 variants: `primary` (amber), `destructive` (red), `secondary` (panel-2), `chip` / `chipOn` (filter toggles), `pill` / `pillStop` (round start/stop CTAs)
   - `Input` — text field with amber focus ring
-  - `Card` — `bg-amp-panel` + border + rounded wrapper (`padding` prop, `interactive` for hover-on-amber rows)
+  - `Card` — `bg-amp-panel` + border + rounded wrapper (`padding` prop, `interactive` for hover-on-amber rows). Forwards all `<div>` HTML attributes
   - `SectionLabel` — the UPPERCASE-tracked muted caption pattern (presets / signature / tap tempo)
   - `PageHeader` — `title` + optional `subtitle` at the top of every page
   - `Readout` — mono + **tabular-nums** number display. Use for ANY live-updating number (BPM, Hz, cents, timer) to avoid digit-width jitter
   - `ErrorStrip` — the `/20` tinted red alert panel
+  - `Knob` — SVG rotary knob with arc + needle (AmpSim drive/EQ/master). Keeps caller's real units (e.g. -12..+12 dB), normalises internally for arc maths. Optional `format(v) → string`, `color`, `step` props. Drag/keyboard/touch handled via invisible `<input type="range">` overlay
 
 ## Commands
 

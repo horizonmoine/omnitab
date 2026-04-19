@@ -5,7 +5,7 @@
  * exist to eliminate the ~50 copies of `bg-amp-panel border border-amp-border`
  * and friends scattered across the 16 pages.
  *
- * Why six, no more:
+ * Why these eight:
  *   - `Button`    — every CTA, destructive action, chip, start/stop pill
  *   - `Input`     — every text field
  *   - `Card`      — every panel/row container
@@ -13,8 +13,9 @@
  *   - `PageHeader` — title + subtitle pair at the top of each page
  *   - `Readout`   — mono + tabular-nums number display (BPM, Hz, cents…)
  *   - `ErrorStrip` — the `/20` tinted error panel
+ *   - `Knob`      — SVG rotary knob with arc + needle (AmpSim drive/EQ/master)
  *
- * Anything more exotic (custom knobs, SVG diagrams) stays inside its own page.
+ * Anything more exotic (chord diagrams, fretboards) stays inside its own page.
  */
 
 import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type PropsWithChildren, type ReactNode } from 'react';
@@ -198,6 +199,108 @@ export function ErrorStrip({
       className={`p-3 rounded text-sm bg-amp-error/20 border border-amp-error text-amp-error ${className}`.trim()}
     >
       {children}
+    </div>
+  );
+}
+
+// ─── Knob ───────────────────────────────────────────────────────────
+/**
+ * Continuous-value rotary knob with SVG arc + needle. Used by AmpSim for
+ * Drive / EQ / Master.
+ *
+ * The clever trick: an invisible `<input type="range">` sits on top of the
+ * SVG, which gives us drag, keyboard arrow-keys, touch handling and
+ * screen-reader support for free — no custom drag handler needed.
+ *
+ * The knob keeps the caller's REAL units (e.g. -12..+12 dB, 0..1 master)
+ * and just normalises internally for the arc/needle math. Pass `format`
+ * to override the value display (e.g. show "+5.0 dB" instead of "5.0").
+ */
+interface KnobProps {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step?: number;
+  /** Optional formatter for the value display under the knob. */
+  format?: (v: number) => string;
+  /** Hex colour for the arc + needle. Defaults to the amp accent amber. */
+  color?: string;
+  onChange: (v: number) => void;
+  className?: string;
+}
+
+export function Knob({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  format,
+  color = '#f59e0b',
+  onChange,
+  className = '',
+}: KnobProps) {
+  // Normalised [0, 1] position for arc + needle math.
+  const t = (value - min) / (max - min);
+  // -135° (min) → +135° (max), 270° total sweep. Bottom 90° stays blank.
+  const angle = t * 270 - 135;
+  // r=42 → circumference ≈ 263.9. 75 % of it (197.93) is the arc length
+  // from 7:30 to 4:30 — matches the design mockup's strokeDasharray maths.
+  const ARC_LEN = 197.93;
+  const dash = t * ARC_LEN;
+  const display = format
+    ? format(value)
+    : step < 1
+      ? value.toFixed(1)
+      : value.toFixed(0);
+
+  return (
+    <div className={`flex flex-col items-center ${className}`.trim()}>
+      <div className="relative w-20 h-20">
+        <svg viewBox="-50 -50 100 100" className="w-full h-full">
+          {/* Background ring */}
+          <circle r={42} fill="#0a0a0a" stroke="#2a2a2a" strokeWidth={2} />
+          {/* Filled arc — proportional to value, starts at 7:30 */}
+          <circle
+            r={42}
+            fill="none"
+            stroke={color}
+            strokeWidth={3}
+            strokeDasharray={`${dash} 1000`}
+            transform="rotate(-225)"
+            strokeLinecap="round"
+          />
+          {/* Needle */}
+          <line
+            x1={0}
+            y1={0}
+            x2={Math.sin((angle * Math.PI) / 180) * 30}
+            y2={-Math.cos((angle * Math.PI) / 180) * 30}
+            stroke={color}
+            strokeWidth={3}
+            strokeLinecap="round"
+          />
+        </svg>
+        {/* Transparent range input absorbs all input events.
+            Drag, keyboard ←/→, touch, screen-reader announcements: free. */}
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={value}
+          onChange={(e) => onChange(Number(e.target.value))}
+          className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+          aria-label={label}
+        />
+      </div>
+      <div className="text-xs text-amp-muted uppercase tracking-wide mt-2">
+        {label}
+      </div>
+      <div className="text-sm text-amp-text font-mono tabular-nums mt-0.5">
+        {display}
+      </div>
     </div>
   );
 }
