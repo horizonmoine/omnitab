@@ -11,7 +11,7 @@ import { createTunerDetector } from '../lib/pitch-detection';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
 import { getSettings } from '../lib/settings';
 import type { TunerReading } from '../lib/types';
-import { Button, ErrorStrip, PageHeader, Readout } from './primitives';
+import { Button, Card, ErrorStrip, PageHeader, Readout } from './primitives';
 
 export function Tuner() {
   const [active, setActive] = useState(false);
@@ -69,8 +69,9 @@ export function Tuner() {
 
       {/* Big note display. aria-live lets screen readers announce pitch
           changes without the user having to re-focus the region. */}
-      <div
-        className="bg-amp-panel border border-amp-border rounded-lg w-full max-w-md p-6 flex flex-col items-center"
+      <Card
+        padding="p-6"
+        className="w-full max-w-md flex flex-col items-center"
         role="status"
         aria-live="polite"
         aria-atomic="true"
@@ -142,10 +143,10 @@ export function Tuner() {
           </svg>
         </div>
 
-        <div className="mt-2 font-mono text-amp-text">
+        <div className="mt-2 font-mono tabular-nums text-amp-text">
           {reading ? `${cents > 0 ? '+' : ''}${cents} cents` : '—'}
         </div>
-      </div>
+      </Card>
 
       <div className="mt-6 flex gap-3">
         {!active ? (

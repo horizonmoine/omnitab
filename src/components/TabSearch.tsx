@@ -17,16 +17,19 @@ export function TabSearch() {
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Only show the "no results" hint AFTER the user has actually submitted a
+  // search. Otherwise the page would permanently display it on first load.
+  const [hasSearched, setHasSearched] = useState(false);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setIsSearching(true);
     setError(null);
+    setHasSearched(true);
     try {
       const hits = await searchSongsterr(query);
       setResults(hits);
-      if (hits.length === 0) setError('Aucun résultat trouvé.');
     } catch (err) {
       console.error(err);
       setError('Erreur de recherche. Vérifie ta connexion internet.');
@@ -68,7 +71,13 @@ export function TabSearch() {
         </Button>
       </form>
 
+      {/* Real error (network / API failure) — red ErrorStrip. */}
       {error && <div className="mb-4 max-w-none"><ErrorStrip>{error}</ErrorStrip></div>}
+
+      {/* Empty result set — muted paragraph, not an error. */}
+      {hasSearched && !isSearching && !error && results.length === 0 && (
+        <p className="text-amp-muted text-sm">Aucun résultat trouvé.</p>
+      )}
 
       <div className="space-y-2">
         {results.map((hit) => (

@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
-import { Button, Card, PageHeader, SectionLabel } from './primitives';
+import { Button, Card, PageHeader, Readout, SectionLabel } from './primitives';
 
 type TimeSig = '2/4' | '3/4' | '4/4' | '6/8';
 
@@ -171,60 +171,110 @@ export function Metronome() {
 
   const beats = beatsForSig(timeSig);
 
+  // ± adjust helpers — kept out of JSX to avoid recreating closures per render.
+  const bumpBpm = (delta: number) =>
+    setBpm(Math.max(40, Math.min(300, bpm + delta)));
+
   return (
-    <div className="h-full overflow-y-auto p-6">
+    // Centered column layout mirrors the Claude Design mockup.
+    <div className="h-full overflow-y-auto p-6 flex flex-col items-center">
       <PageHeader
         title="Métronome"
         subtitle="Tempo précis via Web Audio. Espace pour start/stop."
       />
 
-      {/* Beat indicator */}
-      <div className="flex justify-center gap-3 mb-8">
-        {Array.from({ length: beats }, (_, i) => (
-          <div
-            key={i}
-            className={`w-10 h-10 rounded-full border-2 transition-all duration-75 flex items-center justify-center font-bold text-sm ${
-              currentBeat === i
-                ? i === 0
-                  ? 'bg-amp-accent border-amp-accent text-amp-bg scale-110'
-                  : 'bg-amp-success border-amp-success text-amp-bg scale-110'
-                : 'bg-amp-panel border-amp-border text-amp-muted'
-            }`}
-          >
-            {i + 1}
-          </div>
-        ))}
-      </div>
+      <Card
+        padding="p-6"
+        className="w-full max-w-md flex flex-col items-center"
+        role="group"
+        aria-label="Réglages du métronome"
+      >
+        {/* Big amber BPM display — tabular-nums from Readout prevents jitter. */}
+        <Readout
+          size="hero"
+          className="text-amp-accent"
+          aria-live="polite"
+          aria-label={`${bpm} battements par minute`}
+        >
+          {bpm}
+        </Readout>
+        <div className="text-sm text-amp-muted mt-1">BPM</div>
 
-      {/* BPM display + controls */}
-      <Card padding="p-8" className="flex flex-col items-center mb-6">
-        <div className="flex items-baseline gap-2 mb-6">
-          {/* tabular-nums = no layout jitter when BPM digits change width (88 → 100). */}
-          <input
-            type="number"
-            min={40}
-            max={300}
-            value={bpm}
-            onChange={(e) =>
-              setBpm(Math.max(40, Math.min(300, Number(e.target.value) || 120)))
-            }
-            className="w-24 text-center text-5xl font-mono tabular-nums font-bold leading-none bg-transparent text-amp-text border-b-2 border-amp-border focus:border-amp-accent outline-none"
-            aria-label="Tempo en BPM"
-          />
-          <span className="text-amp-muted text-lg">BPM</span>
+        {/* Beat pips — red for beat 1 (accent), amber otherwise. */}
+        <div
+          className="flex gap-2 mt-4"
+          role="group"
+          aria-label="Indicateur de battement"
+        >
+          {Array.from({ length: beats }, (_, i) => (
+            <div
+              key={i}
+              aria-hidden="true"
+              className="w-5 h-5 rounded-full transition-all duration-75"
+              style={{
+                background:
+                  playing && currentBeat === i
+                    ? i === 0
+                      ? '#ef4444' // accent (beat 1) = red
+                      : '#f59e0b' // other beats = amber
+                    : '#2a2a2a',
+                transform:
+                  playing && currentBeat === i ? 'scale(1.4)' : 'scale(1)',
+              }}
+            />
+          ))}
         </div>
 
+        {/* Tempo slider */}
         <input
           type="range"
           min={40}
           max={300}
           value={bpm}
           onChange={(e) => setBpm(Number(e.target.value))}
-          className="w-full max-w-sm mb-6 accent-amp-accent"
+          className="w-full mt-6 accent-amp-accent"
           aria-label="Tempo (curseur)"
         />
 
-        {/* Play / Stop */}
+        {/* Fine-tune chips — replaces the old number input. */}
+        <div className="flex gap-2 mt-4 items-center">
+          <Button variant="chip" onClick={() => bumpBpm(-5)} aria-label="−5 BPM">
+            −5
+          </Button>
+          <Button variant="chip" onClick={() => bumpBpm(-1)} aria-label="−1 BPM">
+            −1
+          </Button>
+          <Button variant="chip" onClick={() => bumpBpm(1)} aria-label="+1 BPM">
+            +1
+          </Button>
+          <Button variant="chip" onClick={() => bumpBpm(5)} aria-label="+5 BPM">
+            +5
+          </Button>
+        </div>
+
+        {/* Inline time signature chips */}
+        <div className="flex items-center gap-2 mt-4 flex-wrap justify-center">
+          <span className="text-sm text-amp-muted">Signature :</span>
+          {TIME_SIGS.map((ts) => (
+            <Button
+              key={ts.label}
+              variant={timeSig === ts.label ? 'chipOn' : 'chip'}
+              onClick={() => {
+                setTimeSig(ts.label);
+                // Reset beat index so we don't go out of bounds.
+                beatIndexRef.current = 0;
+              }}
+              className="font-mono"
+              aria-pressed={timeSig === ts.label}
+            >
+              {ts.label}
+            </Button>
+          ))}
+        </div>
+      </Card>
+
+      {/* Start/Stop + Tap Tempo — pulled OUT of the card per the mockup. */}
+      <div className="mt-6 flex gap-3">
         {playing ? (
           <Button
             variant="pillStop"
@@ -239,54 +289,18 @@ export function Metronome() {
             onClick={toggle}
             aria-label="Démarrer le métronome"
           >
-            <span aria-hidden="true">▶ </span>Start
+            <span aria-hidden="true">▶ </span>Démarrer
           </Button>
         )}
-      </Card>
-
-      {/* Time signature + Tap tempo */}
-      <div className="grid grid-cols-2 gap-4">
-        {/* Time signature */}
-        <Card>
-          <SectionLabel>Signature</SectionLabel>
-          <div className="flex gap-2 flex-wrap">
-            {TIME_SIGS.map((ts) => (
-              <Button
-                key={ts.label}
-                variant={timeSig === ts.label ? 'chipOn' : 'chip'}
-                onClick={() => {
-                  setTimeSig(ts.label);
-                  // Reset beat index so we don't go out of bounds.
-                  beatIndexRef.current = 0;
-                }}
-                className="font-mono"
-                aria-pressed={timeSig === ts.label}
-              >
-                {ts.label}
-              </Button>
-            ))}
-          </div>
-        </Card>
-
-        {/* Tap tempo */}
-        <Card>
-          <SectionLabel>Tap Tempo</SectionLabel>
-          <Button
-            variant="secondary"
-            onClick={handleTap}
-            // Override secondary's py-1.5/text-sm → big, full-width tap target.
-            className="w-full py-4 text-lg active:bg-amp-accent active:text-amp-bg"
-            aria-label="Tap tempo"
-          >
-            TAP
-          </Button>
-        </Card>
+        <Button variant="secondary" onClick={handleTap} aria-label="Tap tempo">
+          <span aria-hidden="true">🥁 </span>Tap tempo
+        </Button>
       </div>
 
-      {/* Presets */}
-      <Card className="mt-6">
-        <SectionLabel>Presets</SectionLabel>
-        <div className="flex gap-2 flex-wrap">
+      {/* Classical tempo presets — compact chip row, preserved from v1. */}
+      <div className="mt-6 w-full max-w-md">
+        <SectionLabel className="text-center">Presets</SectionLabel>
+        <div className="flex gap-2 flex-wrap justify-center">
           {[
             { label: 'Lent', bpm: 60 },
             { label: 'Modéré', bpm: 100 },
@@ -303,7 +317,7 @@ export function Metronome() {
             </Button>
           ))}
         </div>
-      </Card>
+      </div>
     </div>
   );
 }

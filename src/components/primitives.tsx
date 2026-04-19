@@ -84,8 +84,13 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
 });
 
 // ─── Card ───────────────────────────────────────────────────────────
-interface CardProps {
-  className?: string;
+/**
+ * A Card is "just a div" with the amp-panel chrome — so it forwards all the
+ * attributes a <div> would normally accept (role, aria-live, onClick, data-*).
+ * This is what lets Tuner mark its card as a live region without losing the
+ * standardised styling.
+ */
+interface CardProps extends HTMLAttributes<HTMLDivElement> {
   /** Tailwind padding utility; overrides the default p-4. */
   padding?: string;
   /**
@@ -93,7 +98,6 @@ interface CardProps {
    * row" pattern used in TabSearch / Library results.
    */
   interactive?: boolean;
-  children?: ReactNode;
 }
 
 export function Card({
@@ -101,11 +105,13 @@ export function Card({
   padding = 'p-4',
   interactive = false,
   children,
+  ...rest
 }: CardProps) {
   const hover = interactive ? 'hover:border-amp-accent transition-colors' : '';
   return (
     <div
       className={`bg-amp-panel border border-amp-border rounded ${padding} ${hover} ${className}`.trim()}
+      {...rest}
     >
       {children}
     </div>
