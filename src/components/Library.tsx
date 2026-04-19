@@ -21,6 +21,7 @@ import {
 } from '../lib/db';
 import { detectGpFormat } from '../lib/songsterr-api';
 import type { LibraryTab, TabKind } from '../lib/types';
+import { Button, Card, Input } from './primitives';
 
 interface LibraryProps {
   onTabSelected: (data: ArrayBuffer | string, title: string) => void;
@@ -158,12 +159,13 @@ export function Library({ onTabSelected }: LibraryProps) {
             {tabCount} tab{tabCount !== 1 ? 's' : ''} · {favCount} favori{favCount !== 1 ? 's' : ''}
           </p>
         </div>
-        <button
+        <Button
+          variant="secondary"
           onClick={() => fileInputRef.current?.click()}
-          className="bg-amp-panel-2 hover:bg-amp-accent hover:text-amp-bg text-amp-text px-4 py-2 rounded text-sm transition-colors"
+          aria-label="Importer un fichier"
         >
-          📁 Importer
-        </button>
+          <span aria-hidden="true">📁 </span>Importer
+        </Button>
         <input
           ref={fileInputRef}
           type="file"
@@ -175,12 +177,13 @@ export function Library({ onTabSelected }: LibraryProps) {
       </div>
 
       {/* Search bar */}
-      <input
+      <Input
         type="text"
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder="Rechercher titre, artiste ou tag..."
-        className="w-full bg-amp-panel border border-amp-border rounded px-4 py-2 text-amp-text placeholder-amp-muted focus:outline-none focus:border-amp-accent mb-4"
+        className="w-full mb-4"
+        aria-label="Rechercher dans la bibliothèque"
       />
 
       {/* Filters + Sort */}
@@ -188,21 +191,18 @@ export function Library({ onTabSelected }: LibraryProps) {
         {(
           ['all', 'favorites', 'original', 'cover', 'generated', 'my-playing'] as const
         ).map((k) => (
-          <button
+          <Button
             key={k}
+            variant={filter === k ? 'chipOn' : 'chip'}
             onClick={() => setFilter(k)}
-            className={`px-3 py-1 rounded text-sm transition-colors ${
-              filter === k
-                ? 'bg-amp-accent text-amp-bg'
-                : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-            }`}
+            aria-pressed={filter === k}
           >
             {k === 'all'
               ? 'Tout'
               : k === 'favorites'
                 ? '⭐ Favoris'
                 : KIND_LABELS[k]}
-          </button>
+          </Button>
         ))}
 
         <div className="ml-auto flex items-center gap-1">
@@ -241,11 +241,14 @@ export function Library({ onTabSelected }: LibraryProps) {
           </p>
         </div>
       ) : (
-        <ul className="space-y-2">
+        <div role="list" className="space-y-2">
           {tabs.map((tab) => (
-            <li
+            <Card
               key={tab.id}
-              className="bg-amp-panel border border-amp-border rounded p-3 flex items-center gap-3 hover:border-amp-accent transition-colors"
+              role="listitem"
+              interactive
+              padding="p-3"
+              className="flex items-center gap-3"
             >
               <button
                 onClick={() => tab.id != null && toggleFavorite(tab.id)}
@@ -280,9 +283,9 @@ export function Library({ onTabSelected }: LibraryProps) {
               >
                 🗑️
               </button>
-            </li>
+            </Card>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
