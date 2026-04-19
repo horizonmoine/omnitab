@@ -8,6 +8,7 @@
 
 import { useState, useMemo } from 'react';
 import { Chord, Note } from 'tonal';
+import { Button, Card, Input, PageHeader, SectionLabel } from './primitives';
 
 const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 const QUALITIES = [
@@ -117,15 +118,15 @@ function ChordDiagram({
 
   if (!position) {
     return (
-      <div className="bg-amp-panel border border-amp-border rounded p-3 text-center">
+      <Card padding="p-3" className="text-center">
         <div className="font-bold text-amp-text mb-1">{name}</div>
         <div className="text-xs text-amp-muted">Pas de position trouvée</div>
-      </div>
+      </Card>
     );
   }
 
   return (
-    <div className="bg-amp-panel border border-amp-border rounded p-3 flex flex-col items-center hover:border-amp-accent transition-colors">
+    <Card padding="p-3" interactive className="flex flex-col items-center">
       <div className="font-bold text-amp-text mb-1 text-sm">{name}</div>
       <svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
         {/* Nut or position indicator */}
@@ -223,7 +224,7 @@ function ChordDiagram({
           );
         })}
       </svg>
-    </div>
+    </Card>
   );
 }
 
@@ -258,38 +259,39 @@ export function ChordLibrary() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Dictionnaire d'accords</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Diagrammes de position pour guitare en accordage standard.
-      </p>
+      <PageHeader
+        title="Dictionnaire d'accords"
+        subtitle="Diagrammes de position pour guitare en accordage standard."
+      />
 
       {/* Search bar */}
-      <div className="flex gap-3 mb-4 max-w-xl">
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher (ex: Am7, Dm, G)..."
-          className="flex-1 bg-amp-panel border border-amp-border rounded px-4 py-2 text-amp-text placeholder-amp-muted focus:outline-none focus:border-amp-accent"
-        />
-      </div>
+      <Input
+        type="text"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Rechercher (ex: Am7, Dm, G)..."
+        className="w-full max-w-xl mb-4"
+        aria-label="Rechercher un accord"
+      />
 
-      {/* Root selector (when not searching) */}
+      {/* Root selector (when not searching) — chip grid keyed off the design's
+          'Fondamentale' SectionLabel pattern. */}
       {!search && (
-        <div className="flex gap-1 mb-6 flex-wrap">
-          {ROOTS.map((r) => (
-            <button
-              key={r}
-              onClick={() => setRoot(r)}
-              className={`w-10 h-10 rounded font-bold text-sm transition-colors ${
-                root === r
-                  ? 'bg-amp-accent text-amp-bg'
-                  : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-              }`}
-            >
-              {r}
-            </button>
-          ))}
+        <div className="mb-6">
+          <SectionLabel>Fondamentale</SectionLabel>
+          <div className="flex gap-1 flex-wrap">
+            {ROOTS.map((r) => (
+              <Button
+                key={r}
+                variant={root === r ? 'chipOn' : 'chip'}
+                onClick={() => setRoot(r)}
+                className="w-10 text-center font-bold"
+                aria-pressed={root === r}
+              >
+                {r}
+              </Button>
+            ))}
+          </div>
         </div>
       )}
 
@@ -300,8 +302,9 @@ export function ChordLibrary() {
         ))}
       </div>
 
+      {/* Empty-state — muted paragraph, not an error (matches TabSearch). */}
       {chords.length === 0 && (
-        <p className="text-amp-muted text-center py-8">
+        <p className="text-amp-muted text-sm text-center py-8">
           Aucun accord trouvé pour "{search}".
         </p>
       )}
