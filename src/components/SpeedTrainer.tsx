@@ -10,6 +10,14 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
+import {
+  Button,
+  Card,
+  Input,
+  PageHeader,
+  Readout,
+  SectionLabel,
+} from './primitives';
 
 const SCHEDULE_AHEAD = 0.1;
 const LOOKAHEAD_MS = 25;
@@ -140,20 +148,20 @@ export function SpeedTrainer({ initialTargetBpm }: SpeedTrainerProps) {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Speed Trainer</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Augmente progressivement le tempo pour travailler la vitesse.
-        Comme Songsterr Plus, mais gratuit.
-      </p>
+      <PageHeader
+        title="Speed Trainer"
+        subtitle="Augmente progressivement le tempo pour travailler la vitesse. Comme Songsterr Plus, mais gratuit."
+      />
 
       {/* Current BPM display */}
-      <div className="flex flex-col items-center bg-amp-panel border border-amp-border rounded-lg p-8 mb-6">
-        <div className="text-6xl font-mono text-amp-accent mb-2">
+      <Card padding="p-8" className="flex flex-col items-center mb-6">
+        <Readout size="hero" className="text-amp-accent block mb-2">
           {currentBpm}
-        </div>
+        </Readout>
         <div className="text-amp-muted text-sm mb-4">BPM actuel</div>
 
-        {/* Beat indicator */}
+        {/* Beat indicator — custom circles per beat, highlighted on active
+            beat with bar-1 in amber vs rest in green. Kept raw. */}
         <div className="flex gap-2 mb-6">
           {Array.from({ length: beatsPerBar }, (_, i) => (
             <div
@@ -178,7 +186,14 @@ export function SpeedTrainer({ initialTargetBpm }: SpeedTrainerProps) {
             <span>Mesure {currentBar + 1}/{barsPerStep}</span>
             <span>{targetBpm} BPM</span>
           </div>
-          <div className="w-full bg-amp-panel-2 rounded-full h-3 overflow-hidden">
+          <div
+            className="w-full bg-amp-panel-2 rounded-full h-3 overflow-hidden"
+            role="progressbar"
+            aria-valuenow={Math.round(progressPct)}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Progression vers BPM cible"
+          >
             <div
               className="bg-amp-accent h-full transition-all duration-300"
               style={{ width: `${Math.min(100, progressPct)}%` }}
@@ -187,99 +202,97 @@ export function SpeedTrainer({ initialTargetBpm }: SpeedTrainerProps) {
         </div>
 
         {completed && (
-          <div className="text-amp-success font-bold mb-4">
+          <div className="text-amp-success font-bold mb-4" role="status">
             Bravo ! Objectif de {targetBpm} BPM atteint !
           </div>
         )}
 
-        <button
+        <Button
+          variant={running ? 'pillStop' : 'pill'}
           onClick={running ? stop : start}
-          className={`px-10 py-3 rounded-full text-lg font-bold transition-colors ${
-            running
-              ? 'bg-amp-error hover:bg-red-600 text-white'
-              : 'bg-amp-accent hover:bg-amp-accent-hover text-amp-bg'
-          }`}
         >
-          {running ? '⏹ Stop' : '▶ Start'}
-        </button>
-      </div>
+          {running ? (
+            <><span aria-hidden="true">⏹ </span>Stop</>
+          ) : (
+            <><span aria-hidden="true">▶ </span>Start</>
+          )}
+        </Button>
+      </Card>
 
-      {/* Settings */}
+      {/* Settings — 4 numeric inputs for start/target/step/bars */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 max-w-2xl">
-        <div className="bg-amp-panel border border-amp-border rounded p-3">
+        <Card padding="p-3">
           <label className="block text-xs text-amp-muted mb-1">BPM départ</label>
-          <input
+          <Input
             type="number"
             min={30}
             max={300}
             value={startBpm}
             onChange={(e) => setStartBpm(Math.max(30, Number(e.target.value)))}
             disabled={running}
-            className="w-full bg-amp-panel-2 border border-amp-border rounded px-2 py-1 text-amp-text font-mono text-center disabled:opacity-50"
+            className="w-full bg-amp-panel-2 px-2 py-1 font-mono text-center disabled:opacity-50"
           />
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded p-3">
+        </Card>
+        <Card padding="p-3">
           <label className="block text-xs text-amp-muted mb-1">BPM cible</label>
-          <input
+          <Input
             type="number"
             min={30}
             max={300}
             value={targetBpm}
             onChange={(e) => setTargetBpm(Math.max(30, Number(e.target.value)))}
             disabled={running}
-            className="w-full bg-amp-panel-2 border border-amp-border rounded px-2 py-1 text-amp-text font-mono text-center disabled:opacity-50"
+            className="w-full bg-amp-panel-2 px-2 py-1 font-mono text-center disabled:opacity-50"
           />
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded p-3">
+        </Card>
+        <Card padding="p-3">
           <label className="block text-xs text-amp-muted mb-1">+BPM / palier</label>
-          <input
+          <Input
             type="number"
             min={1}
             max={50}
             value={stepBpm}
             onChange={(e) => setStepBpm(Math.max(1, Number(e.target.value)))}
             disabled={running}
-            className="w-full bg-amp-panel-2 border border-amp-border rounded px-2 py-1 text-amp-text font-mono text-center disabled:opacity-50"
+            className="w-full bg-amp-panel-2 px-2 py-1 font-mono text-center disabled:opacity-50"
           />
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded p-3">
+        </Card>
+        <Card padding="p-3">
           <label className="block text-xs text-amp-muted mb-1">Mesures / palier</label>
-          <input
+          <Input
             type="number"
             min={1}
             max={32}
             value={barsPerStep}
             onChange={(e) => setBarsPerStep(Math.max(1, Number(e.target.value)))}
             disabled={running}
-            className="w-full bg-amp-panel-2 border border-amp-border rounded px-2 py-1 text-amp-text font-mono text-center disabled:opacity-50"
+            className="w-full bg-amp-panel-2 px-2 py-1 font-mono text-center disabled:opacity-50"
           />
-        </div>
+        </Card>
       </div>
 
-      {/* Beats per bar */}
+      {/* Beats per bar — time signature chips, font-mono so "4/4" is legible */}
       <div className="mt-4 max-w-2xl">
         <label className="text-xs text-amp-muted mb-2 block">Temps par mesure</label>
         <div className="flex gap-2">
           {[2, 3, 4, 6].map((b) => (
-            <button
+            <Button
               key={b}
+              variant={beatsPerBar === b ? 'chipOn' : 'chip'}
               onClick={() => setBeatsPerBar(b)}
               disabled={running}
-              className={`px-4 py-2 rounded font-mono text-sm transition-colors disabled:opacity-50 ${
-                beatsPerBar === b
-                  ? 'bg-amp-accent text-amp-bg font-bold'
-                  : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-              }`}
+              aria-pressed={beatsPerBar === b}
+              className="font-mono"
             >
               {b}/4
-            </button>
+            </Button>
           ))}
         </div>
       </div>
 
       {/* Quick presets */}
       <div className="mt-6 max-w-2xl">
-        <h3 className="text-sm text-amp-muted mb-2 uppercase tracking-wide">Presets</h3>
+        <SectionLabel className="mb-2">Presets</SectionLabel>
         <div className="flex gap-2 flex-wrap">
           {[
             { label: 'Débutant', start: 40, target: 80, step: 5 },
@@ -288,18 +301,18 @@ export function SpeedTrainer({ initialTargetBpm }: SpeedTrainerProps) {
             { label: 'Shred', start: 100, target: 200, step: 10 },
             { label: 'Micro-paliers', start: 60, target: 120, step: 2 },
           ].map((p) => (
-            <button
+            <Button
               key={p.label}
+              variant="secondary"
               disabled={running}
               onClick={() => {
                 setStartBpm(p.start);
                 setTargetBpm(p.target);
                 setStepBpm(p.step);
               }}
-              className="bg-amp-panel-2 hover:bg-amp-border disabled:opacity-50 text-amp-text px-3 py-1.5 rounded text-sm transition-colors"
             >
               {p.label} ({p.start}→{p.target})
-            </button>
+            </Button>
           ))}
         </div>
       </div>

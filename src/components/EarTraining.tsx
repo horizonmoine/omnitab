@@ -8,6 +8,13 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
+import {
+  Button,
+  Card,
+  PageHeader,
+  Readout,
+  SectionLabel,
+} from './primitives';
 
 const INTERVALS = [
   { semitones: 0, name: 'Unisson', short: 'P1' },
@@ -171,46 +178,35 @@ export function EarTraining() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Ear Training</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Identifie l'intervalle entre 2 notes. Entraîne ton oreille musicale.
-      </p>
+      <PageHeader
+        title="Ear Training"
+        subtitle="Identifie l'intervalle entre 2 notes. Entraîne ton oreille musicale."
+      />
 
-      {/* Stats bar */}
+      {/* Stats bar — 4 StatCards, each with its own semantic colour:
+          streak (amber current), record (neutral), accuracy (success),
+          total (neutral). */}
       <div className="flex gap-4 mb-6 text-sm">
-        <div className="bg-amp-panel border border-amp-border rounded px-4 py-2 text-center">
-          <div className="text-2xl font-mono text-amp-accent">{streak}</div>
-          <div className="text-xs text-amp-muted">Série</div>
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded px-4 py-2 text-center">
-          <div className="text-2xl font-mono text-amp-text">{bestStreak}</div>
-          <div className="text-xs text-amp-muted">Record</div>
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded px-4 py-2 text-center">
-          <div className="text-2xl font-mono text-amp-success">{accuracy}%</div>
-          <div className="text-xs text-amp-muted">Précision</div>
-        </div>
-        <div className="bg-amp-panel border border-amp-border rounded px-4 py-2 text-center">
-          <div className="text-2xl font-mono text-amp-text">{totalAnswered}</div>
-          <div className="text-xs text-amp-muted">Réponses</div>
-        </div>
+        <StatCard value={`${streak}`} label="Série" valueClass="text-amp-accent" />
+        <StatCard value={`${bestStreak}`} label="Record" />
+        <StatCard value={`${accuracy}%`} label="Précision" valueClass="text-amp-success" />
+        <StatCard value={`${totalAnswered}`} label="Réponses" />
       </div>
 
       {/* Play area */}
-      <div className="bg-amp-panel border border-amp-border rounded-lg p-6 mb-6 text-center">
+      <Card padding="p-6" className="mb-6 text-center">
         {currentInterval === null ? (
-          <button
-            onClick={newQuestion}
-            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-8 py-4 rounded-full text-lg transition-colors"
-          >
-            ▶ Commencer
-          </button>
+          <Button variant="pill" onClick={newQuestion} className="px-8 py-4">
+            <span aria-hidden="true">▶ </span>Commencer
+          </Button>
         ) : (
           <>
             {/* Feedback */}
             {isCorrect !== null && (
               <div
                 className={`text-xl font-bold mb-4 ${isCorrect ? 'text-amp-success' : 'text-amp-error'}`}
+                role="status"
+                aria-live="polite"
               >
                 {isCorrect
                   ? '✓ Correct !'
@@ -224,14 +220,12 @@ export function EarTraining() {
               </div>
             )}
 
-            <button
-              onClick={replay}
-              className="bg-amp-panel-2 hover:bg-amp-border text-amp-text font-bold px-6 py-2 rounded mb-6 transition-colors"
-            >
-              🔊 Réécouter
-            </button>
+            <Button variant="secondary" onClick={replay} className="mb-6">
+              <span aria-hidden="true">🔊 </span>Réécouter
+            </Button>
 
-            {/* Answer buttons (only show active intervals) */}
+            {/* Answer buttons — 4 conditional colour states (correct/wrong/
+                reveal-answer/default) don't map to Button variants; kept raw. */}
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2 max-w-2xl mx-auto">
               {INTERVALS.filter((i) => activeIntervals.has(i.semitones)).map((interval) => {
                 const isSelected = answer === interval.semitones;
@@ -259,30 +253,28 @@ export function EarTraining() {
             </div>
           </>
         )}
-      </div>
+      </Card>
 
       {/* Settings */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-w-2xl">
         {/* Mode selector */}
-        <div className="bg-amp-panel border border-amp-border rounded p-4">
-          <h3 className="text-sm font-bold text-amp-muted mb-2 uppercase tracking-wide">Mode</h3>
+        <Card padding="p-4">
+          <SectionLabel className="mb-2">Mode</SectionLabel>
           <div className="flex gap-2">
             {[
               { id: 'ascending' as const, label: 'Ascendant ↑' },
               { id: 'descending' as const, label: 'Descendant ↓' },
               { id: 'harmonic' as const, label: 'Harmonique =' },
             ].map((m) => (
-              <button
+              <Button
                 key={m.id}
+                variant={mode === m.id ? 'chipOn' : 'chip'}
                 onClick={() => setMode(m.id)}
-                className={`px-3 py-1.5 rounded text-xs transition-colors ${
-                  mode === m.id
-                    ? 'bg-amp-accent text-amp-bg font-bold'
-                    : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-                }`}
+                aria-pressed={mode === m.id}
+                className="text-xs"
               >
                 {m.label}
-              </button>
+              </Button>
             ))}
           </div>
           <label className="flex items-center gap-2 mt-3 text-xs text-amp-muted cursor-pointer">
@@ -294,18 +286,18 @@ export function EarTraining() {
             />
             Jouer automatiquement
           </label>
-        </div>
+        </Card>
 
-        {/* Interval selector */}
-        <div className="bg-amp-panel border border-amp-border rounded p-4">
-          <h3 className="text-sm font-bold text-amp-muted mb-2 uppercase tracking-wide">
-            Intervalles actifs
-          </h3>
+        {/* Interval selector — dense grid of 13 intervals, kept tighter
+            than chip variant to avoid wrapping on narrow screens. */}
+        <Card padding="p-4">
+          <SectionLabel className="mb-2">Intervalles actifs</SectionLabel>
           <div className="flex gap-1 flex-wrap">
             {INTERVALS.map((i) => (
               <button
                 key={i.semitones}
                 onClick={() => toggleInterval(i.semitones)}
+                aria-pressed={activeIntervals.has(i.semitones)}
                 className={`px-2 py-1 rounded text-xs transition-colors ${
                   activeIntervals.has(i.semitones)
                     ? 'bg-amp-accent text-amp-bg font-bold'
@@ -330,37 +322,52 @@ export function EarTraining() {
               Basique
             </button>
           </div>
-        </div>
+        </Card>
       </div>
 
       {/* Per-interval stats */}
       {totalAnswered > 0 && (
         <div className="mt-6 max-w-2xl">
-          <h3 className="text-sm font-bold text-amp-muted mb-2 uppercase tracking-wide">
-            Stats par intervalle
-          </h3>
+          <SectionLabel className="mb-2">Stats par intervalle</SectionLabel>
           <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-7 gap-2">
             {INTERVALS.filter((i) => stats[i.semitones]?.total > 0).map((i) => {
               const s = stats[i.semitones]!;
               const pct = Math.round((s.correct / s.total) * 100);
+              const colour =
+                pct >= 80 ? 'text-amp-success' : pct >= 50 ? 'text-amp-accent' : 'text-amp-error';
               return (
-                <div
-                  key={i.semitones}
-                  className="bg-amp-panel border border-amp-border rounded p-2 text-center"
-                >
+                <Card key={i.semitones} padding="p-2" className="text-center">
                   <div className="font-bold text-xs">{i.short}</div>
-                  <div
-                    className={`text-lg font-mono ${pct >= 80 ? 'text-amp-success' : pct >= 50 ? 'text-amp-accent' : 'text-amp-error'}`}
-                  >
+                  <Readout size="base" className={`${colour} block text-lg`}>
                     {pct}%
-                  </div>
+                  </Readout>
                   <div className="text-[10px] text-amp-muted">{s.correct}/{s.total}</div>
-                </div>
+                </Card>
               );
             })}
           </div>
         </div>
       )}
     </div>
+  );
+}
+
+/** Compact stat card for the top-of-page stats bar. */
+function StatCard({
+  value,
+  label,
+  valueClass = 'text-amp-text',
+}: {
+  value: string;
+  label: string;
+  valueClass?: string;
+}) {
+  return (
+    <Card padding="px-4 py-2" className="text-center">
+      <Readout size="lg" className={`${valueClass} block`}>
+        {value}
+      </Readout>
+      <div className="text-xs text-amp-muted">{label}</div>
+    </Card>
   );
 }

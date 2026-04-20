@@ -16,6 +16,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Chord, Note, Progression } from 'tonal';
 import { getAudioContext, resumeAudioContext } from '../lib/audio-engine';
+import {
+  Button,
+  Card,
+  Input,
+  PageHeader,
+  SectionLabel,
+} from './primitives';
 
 const KEYS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
@@ -188,20 +195,22 @@ export function BackingTrack() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Backing Track</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Joue des progressions d'accords en boucle pour pratiquer.
-      </p>
+      <PageHeader
+        title="Backing Track"
+        subtitle="Joue des progressions d'accords en boucle pour pratiquer."
+      />
 
       {/* Key + Mode */}
       <div className="flex gap-4 mb-4 items-start flex-wrap">
         <div>
-          <h3 className="text-xs font-bold text-amp-muted mb-1 uppercase tracking-wide">Tonalité</h3>
+          <SectionLabel className="mb-1 text-xs">Tonalité</SectionLabel>
+          {/* Square 36px buttons stay raw — chip variant is rect, not square */}
           <div className="flex gap-1 flex-wrap">
             {KEYS.map((k) => (
               <button
                 key={k}
                 onClick={() => setKey(k)}
+                aria-pressed={key === k}
                 className={`w-9 h-9 rounded font-bold text-sm transition-colors ${
                   key === k
                     ? 'bg-amp-accent text-amp-bg'
@@ -214,20 +223,17 @@ export function BackingTrack() {
           </div>
         </div>
         <div>
-          <h3 className="text-xs font-bold text-amp-muted mb-1 uppercase tracking-wide">Mode</h3>
+          <SectionLabel className="mb-1 text-xs">Mode</SectionLabel>
           <div className="flex gap-2">
             {(['major', 'minor'] as const).map((m) => (
-              <button
+              <Button
                 key={m}
+                variant={mode === m ? 'chipOn' : 'chip'}
                 onClick={() => setMode(m)}
-                className={`px-4 py-2 rounded text-sm transition-colors ${
-                  mode === m
-                    ? 'bg-amp-accent text-amp-bg font-bold'
-                    : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-                }`}
+                aria-pressed={mode === m}
               >
                 {m === 'major' ? 'Majeur' : 'Mineur'}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -236,35 +242,30 @@ export function BackingTrack() {
       {/* BPM + Beats per chord */}
       <div className="flex gap-6 mb-6 items-end flex-wrap">
         <div>
-          <h3 className="text-xs font-bold text-amp-muted mb-1 uppercase tracking-wide">
-            BPM: {bpm}
-          </h3>
+          <SectionLabel className="mb-1 text-xs">BPM: {bpm}</SectionLabel>
+          {/* Range slider stays raw — no Slider primitive yet */}
           <input
             type="range"
             min={40}
             max={200}
             value={bpm}
             onChange={(e) => setBpm(Number(e.target.value))}
+            aria-label="BPM"
             className="w-48 accent-amp-accent"
           />
         </div>
         <div>
-          <h3 className="text-xs font-bold text-amp-muted mb-1 uppercase tracking-wide">
-            Temps par accord
-          </h3>
+          <SectionLabel className="mb-1 text-xs">Temps par accord</SectionLabel>
           <div className="flex gap-1">
             {[2, 4, 8].map((b) => (
-              <button
+              <Button
                 key={b}
+                variant={beatsPerChord === b ? 'chipOn' : 'chip'}
                 onClick={() => setBeatsPerChord(b)}
-                className={`px-3 py-1.5 rounded text-sm transition-colors ${
-                  beatsPerChord === b
-                    ? 'bg-amp-accent text-amp-bg font-bold'
-                    : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-                }`}
+                aria-pressed={beatsPerChord === b}
               >
                 {b}
-              </button>
+              </Button>
             ))}
           </div>
         </div>
@@ -273,7 +274,7 @@ export function BackingTrack() {
       {/* Preset selector */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
-          <h3 className="text-xs font-bold text-amp-muted uppercase tracking-wide">Progression</h3>
+          <SectionLabel className="mb-0 text-xs">Progression</SectionLabel>
           <label className="flex items-center gap-1 text-xs text-amp-muted cursor-pointer">
             <input
               type="checkbox"
@@ -286,19 +287,24 @@ export function BackingTrack() {
         </div>
 
         {useCustom ? (
-          <input
+          <Input
             type="text"
             value={customNumerals}
             onChange={(e) => setCustomNumerals(e.target.value)}
             placeholder="ex: I IV V I  ou  IIm7 V7 IMaj7"
-            className="w-full max-w-lg bg-amp-panel border border-amp-border rounded px-4 py-2 text-amp-text placeholder-amp-muted focus:outline-none focus:border-amp-accent"
+            aria-label="Progression personnalisée"
+            className="w-full max-w-lg"
           />
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-2xl" role="radiogroup">
+            {/* Preset cards stay as <button> for keyboard activation + ARIA.
+                Converting to Card (div) would lose native button semantics. */}
             {PRESETS.map((p, i) => (
               <button
                 key={i}
                 onClick={() => setSelectedPreset(i)}
+                role="radio"
+                aria-checked={selectedPreset === i}
                 className={`text-left p-3 rounded border transition-colors ${
                   selectedPreset === i
                     ? 'bg-amp-accent/10 border-amp-accent'
@@ -313,8 +319,9 @@ export function BackingTrack() {
         )}
       </div>
 
-      {/* Chord display */}
-      <div className="bg-amp-panel border border-amp-border rounded-lg p-6 mb-6">
+      {/* Chord display — big Card with the resolved progression, active chord
+          scales up for visual feedback. */}
+      <Card padding="p-6" className="mb-6">
         <div className="flex gap-3 flex-wrap justify-center">
           {chordNames.map((chord, i) => (
             <div
@@ -324,6 +331,7 @@ export function BackingTrack() {
                   ? 'bg-amp-accent text-amp-bg scale-110 shadow-lg shadow-amp-accent/30'
                   : 'bg-amp-panel-2 text-amp-text'
               }`}
+              aria-current={isPlaying && currentChordIndex === i ? 'true' : undefined}
             >
               <div className="font-bold text-lg">{chord || '?'}</div>
               <div className="text-[10px] opacity-60 mt-0.5">
@@ -338,21 +346,21 @@ export function BackingTrack() {
             Progression invalide — vérifie les chiffres romains.
           </div>
         )}
-      </div>
+      </Card>
 
       {/* Play / Stop */}
       <div className="flex justify-center mb-6">
-        <button
+        <Button
+          variant={isPlaying ? 'pillStop' : 'pill'}
           onClick={isPlaying ? stopPlayback : startPlayback}
           disabled={chordNames.length === 0}
-          className={`px-10 py-4 rounded-full text-lg font-bold transition-colors disabled:opacity-40 ${
-            isPlaying
-              ? 'bg-amp-error hover:bg-amp-error/80 text-white'
-              : 'bg-amp-accent hover:bg-amp-accent-hover text-amp-bg'
-          }`}
         >
-          {isPlaying ? '■ Stop' : '▶ Jouer'}
-        </button>
+          {isPlaying ? (
+            <><span aria-hidden="true">■ </span>Stop</>
+          ) : (
+            <><span aria-hidden="true">▶ </span>Jouer</>
+          )}
+        </Button>
       </div>
 
       {/* Tips */}
