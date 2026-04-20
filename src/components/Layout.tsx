@@ -6,7 +6,7 @@
  * model and avoids routing library weight).
  */
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 export type Page =
   | 'viewer'
@@ -65,6 +65,17 @@ export function Layout({ currentPage, onNavigate, children }: LayoutProps) {
     setMobileNavOpen(false);
   };
 
+  // Escape closes the mobile nav sheet. Listener is only attached when
+  // the sheet is open so we don't keep a keydown handler live forever.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setMobileNavOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [mobileNavOpen]);
+
   return (
     <div className="h-full flex flex-col md:flex-row">
       {/* Desktop sidebar */}
@@ -73,7 +84,12 @@ export function Layout({ currentPage, onNavigate, children }: LayoutProps) {
           <h1 className="text-xl font-bold text-amp-accent">OmniTab</h1>
           <p className="text-xs text-amp-muted mt-1">Guitar Companion</p>
         </div>
-        <nav className="flex-1 p-3 space-y-1" aria-label="Navigation principale">
+        {/* overflow-y-auto so the 16-item nav scrolls on short viewports
+            (laptop 1366×768 @ 125% zoom clips without this). */}
+        <nav
+          className="flex-1 p-3 space-y-1 overflow-y-auto"
+          aria-label="Navigation principale"
+        >
           {NAV.map((item) => (
             <NavButton
               key={item.id}
@@ -102,13 +118,26 @@ export function Layout({ currentPage, onNavigate, children }: LayoutProps) {
         </button>
       </header>
 
-      {/* Mobile nav sheet */}
+      {/* Mobile nav sheet — modal overlay. Closes on:
+          - tapping any nav item (handleNav sets state to false)
+          - tapping the backdrop (click fires on the outer div, but the
+            <nav> swallows its own clicks via stopPropagation so we don't
+            double-close when a nav item is tapped)
+          - pressing Escape (useEffect handler above) */}
       {mobileNavOpen && (
         <div
           id="mobile-nav-sheet"
-          className="md:hidden fixed inset-0 z-40 bg-amp-bg/95 flex flex-col pt-16"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Menu de navigation"
+          onClick={() => setMobileNavOpen(false)}
+          className="md:hidden fixed inset-0 z-40 bg-amp-bg/95 flex flex-col pt-16 overflow-y-auto"
         >
-          <nav className="p-4 space-y-2" aria-label="Navigation principale">
+          <nav
+            className="p-4 space-y-2"
+            aria-label="Navigation principale"
+            onClick={(e) => e.stopPropagation()}
+          >
             {NAV.map((item) => (
               <NavButton
                 key={item.id}
