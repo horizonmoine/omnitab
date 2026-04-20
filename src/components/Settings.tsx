@@ -37,6 +37,7 @@ import {
   updateSettings,
   type AppSettings,
 } from '../lib/settings';
+import { Button, Card, Input, PageHeader } from './primitives';
 
 /**
  * Tiny hook that subscribes this component to settings changes. When any
@@ -112,29 +113,31 @@ export function Settings() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <div className="flex items-center justify-between mb-6 max-w-2xl">
-        <div>
-          <h2 className="text-2xl font-bold">Réglages</h2>
-          <p className="text-amp-muted text-sm mt-1">
-            Paramètres persistants, stockés localement dans ton navigateur.
-          </p>
-        </div>
+      {/* PageHeader keeps its own mb-6; flex `items-center` vertically aligns
+          the success flash next to the header. */}
+      <div className="flex items-center justify-between max-w-2xl">
+        <PageHeader
+          title="Réglages"
+          subtitle="Paramètres persistants, stockés localement dans ton navigateur."
+        />
         {saveFlash && (
-          <span className="text-amp-success text-sm">{saveFlash}</span>
+          <span className="text-amp-success text-sm" role="status" aria-live="polite">
+            {saveFlash}
+          </span>
         )}
       </div>
 
       {/* ───── Accordeur ───── */}
       <Section title="Accordeur" subtitle="Affecte la page Accordeur en temps réel.">
         <Field label="Référence La4 (Hz)">
-          <input
+          <Input
             type="number"
             step="0.5"
             min="400"
             max="480"
             value={settings.a4Hz}
             onChange={(e) => update({ a4Hz: Number(e.target.value) })}
-            className="w-32 bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text focus:outline-none focus:border-amp-accent"
+            className="w-32"
           />
           <div className="text-xs text-amp-muted mt-1">
             Standard : 440 Hz. Certains orchestres utilisent 442, le tuning
@@ -149,6 +152,8 @@ export function Settings() {
         subtitle="Valeurs par défaut pour la page Transcrire."
       >
         <Field label="Accordage par défaut">
+          {/* Select stays raw — no Select primitive yet, and the native <select>
+              gives free keyboard/touch handling. */}
           <select
             value={settings.defaultTuningId}
             onChange={(e) => update({ defaultTuningId: e.target.value })}
@@ -169,12 +174,12 @@ export function Settings() {
         subtitle="Serveur local pour isoler un stem (guitare / voix) avant transcription."
       >
         <Field label="URL">
-          <input
+          <Input
             type="url"
             placeholder="http://localhost:8000"
             value={settings.demucsUrl}
             onChange={(e) => update({ demucsUrl: e.target.value })}
-            className="w-full max-w-md bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text font-mono text-sm focus:outline-none focus:border-amp-accent"
+            className="w-full max-w-md font-mono text-sm"
           />
           <div className="text-xs text-amp-muted mt-1">
             Vide = utilise <code>VITE_DEMUCS_API</code> ou{' '}
@@ -308,7 +313,7 @@ export function Settings() {
           title="Installer OmniTab"
           subtitle="Ajoute l'app à ton écran d'accueil pour un accès rapide et offline."
         >
-          <button
+          <Button
             onClick={async () => {
               installPrompt.prompt();
               const result = await installPrompt.userChoice;
@@ -317,10 +322,9 @@ export function Settings() {
                 setInstallPrompt(null);
               }
             }}
-            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-6 py-2.5 rounded transition-colors"
           >
-            📱 Installer OmniTab
-          </button>
+            <span aria-hidden="true">📱 </span>Installer OmniTab
+          </Button>
         </Section>
       )}
 
@@ -355,14 +359,17 @@ interface SectionProps {
 }
 
 function Section({ title, subtitle, children }: SectionProps) {
+  // Card primitive gives us the bg-amp-panel + border + rounded chrome.
+  // Section titles here are amber + bigger than SectionLabel's uppercase
+  // caption — they are actual section headings, not micro-captions.
   return (
-    <section className="max-w-2xl mb-6 p-4 bg-amp-panel border border-amp-border rounded">
+    <Card className="max-w-2xl mb-6">
       <h3 className="font-bold text-amp-accent mb-1">{title}</h3>
       {subtitle && (
         <p className="text-xs text-amp-muted mb-4">{subtitle}</p>
       )}
       <div className="space-y-4">{children}</div>
-    </section>
+    </Card>
   );
 }
 

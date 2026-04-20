@@ -18,6 +18,14 @@ import {
   requestMicStream,
 } from '../lib/audio-engine';
 import { saveRecording, getAllRecordings, deleteRecording } from '../lib/db';
+import {
+  Button,
+  Card,
+  ErrorStrip,
+  PageHeader,
+  Readout,
+  SectionLabel,
+} from './primitives';
 
 interface RecorderProps {
   onTranscribe: (blob: Blob, label: string) => void;
@@ -167,14 +175,14 @@ export function Recorder({ onTranscribe }: RecorderProps) {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Enregistrer</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Enregistre via l'iRig pour ensuite transcrire automatiquement en tab.
-      </p>
+      <PageHeader
+        title="Enregistrer"
+        subtitle="Enregistre via l'iRig pour ensuite transcrire automatiquement en tab."
+      />
 
       {/* Record section with waveform */}
-      <div className="flex flex-col items-center bg-amp-panel border border-amp-border rounded-lg p-8 mb-6">
-        {/* Waveform canvas */}
+      <Card padding="p-8" className="flex flex-col items-center mb-6">
+        {/* Waveform canvas — border turns amber while recording for feedback */}
         <canvas
           ref={canvasRef}
           width={400}
@@ -182,40 +190,32 @@ export function Recorder({ onTranscribe }: RecorderProps) {
           className={`w-full max-w-md rounded mb-4 ${recording ? 'border border-amp-accent' : 'border border-amp-border'}`}
         />
 
-        <div className="text-5xl font-mono mb-4">
-          {recording ? '🔴' : '⚪'} {formatTime(elapsed)}
-        </div>
+        {/* `block` forces the span to take a line so mb-4 pushes REC/STOP down */}
+        <Readout className="block mb-4">
+          <span aria-hidden="true">{recording ? '🔴' : '⚪'}</span>{' '}
+          {formatTime(elapsed)}
+        </Readout>
         {!recording ? (
-          <button
-            onClick={start}
-            className="bg-amp-error hover:bg-red-600 text-white font-bold px-8 py-3 rounded-full text-lg transition-colors"
-          >
-            ● REC
-          </button>
+          <Button variant="pillStop" onClick={start} aria-label="Démarrer l'enregistrement">
+            <span aria-hidden="true">● </span>REC
+          </Button>
         ) : (
-          <button
-            onClick={stop}
-            className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-8 py-3 rounded-full text-lg transition-colors"
-          >
-            ⏹ STOP
-          </button>
+          <Button variant="pill" onClick={stop} aria-label="Arrêter l'enregistrement">
+            <span aria-hidden="true">⏹ </span>STOP
+          </Button>
         )}
-      </div>
+      </Card>
 
-      {error && (
-        <div className="mb-4 p-3 bg-amp-error/20 border border-amp-error rounded text-amp-error text-sm">
-          {error}
-        </div>
-      )}
+      {error && <ErrorStrip className="mb-4">{error}</ErrorStrip>}
 
       {/* Recording list */}
-      <h3 className="text-lg font-bold mb-3">Mes enregistrements</h3>
+      <SectionLabel>Mes enregistrements</SectionLabel>
       {!recordings ? (
         <p className="text-amp-muted">Chargement...</p>
       ) : recordings.length === 0 ? (
         <p className="text-amp-muted">Aucun enregistrement.</p>
       ) : (
-        <ul className="space-y-2">
+        <div role="list" className="space-y-2">
           {recordings.map((rec) => (
             <RecordingItem
               key={rec.id}
@@ -224,7 +224,7 @@ export function Recorder({ onTranscribe }: RecorderProps) {
               onDelete={() => rec.id != null && deleteRecording(rec.id)}
             />
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
@@ -258,7 +258,7 @@ function RecordingItem({ rec, onTranscribe, onDelete }: RecordingItemProps) {
   };
 
   return (
-    <li className="bg-amp-panel border border-amp-border rounded p-3">
+    <Card role="listitem" padding="p-3">
       <div className="flex items-center gap-3">
         <div className="flex-1 min-w-0">
           <div className="font-semibold truncate">{rec.name}</div>
@@ -268,37 +268,37 @@ function RecordingItem({ rec, onTranscribe, onDelete }: RecordingItemProps) {
           </div>
         </div>
         <audio ref={audioRef} controls src={url} className="h-8" />
+        {/* Icon-only buttons stay raw — Button variants force padding/bg that
+            clash with a single-emoji affordance. Same pattern as Library. */}
         <button
           onClick={onTranscribe}
           className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-3 py-1.5 rounded text-sm transition-colors"
+          aria-label="Transcrire"
         >
-          🤖
+          <span aria-hidden="true">🤖</span>
         </button>
         <button
           onClick={onDelete}
           className="text-amp-muted hover:text-amp-error transition-colors"
           aria-label="Supprimer"
         >
-          🗑️
+          <span aria-hidden="true">🗑️</span>
         </button>
       </div>
-      {/* Speed control */}
+      {/* Speed control — chips switch to chipOn variant when active */}
       <div className="flex items-center gap-2 mt-2 pt-2 border-t border-amp-border">
         <span className="text-xs text-amp-muted w-16">Vitesse:</span>
         {[0.5, 0.75, 1, 1.25, 1.5, 2].map((s) => (
-          <button
+          <Button
             key={s}
+            variant={speed === s ? 'chipOn' : 'chip'}
             onClick={() => setSpeed(s)}
-            className={`px-2 py-0.5 rounded text-xs transition-colors ${
-              speed === s
-                ? 'bg-amp-accent text-amp-bg font-bold'
-                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
-            }`}
+            aria-pressed={speed === s}
           >
             {s}×
-          </button>
+          </Button>
         ))}
       </div>
-    </li>
+    </Card>
   );
 }
