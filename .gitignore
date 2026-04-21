@@ -38,3 +38,6 @@ next-env.d.ts
 .vscode/
 .idea/
 *.swp
+
+# Claude Code per-user settings — never commit these.
+.claude/

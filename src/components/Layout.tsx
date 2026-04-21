@@ -25,6 +25,7 @@ export type Page =
   | 'ear-training'
   | 'backing-track'
   | 'practice'
+  | 'setlists'
   | 'settings';
 
 interface NavItem {
@@ -50,6 +51,7 @@ const NAV: NavItem[] = [
   { id: 'ear-training', label: 'Ear Training', icon: '👂' },
   { id: 'backing-track', label: 'Backing Track', icon: '🔁' },
   { id: 'practice', label: 'Journal', icon: '📓' },
+  { id: 'setlists', label: 'Setlists', icon: '📋' },
   { id: 'settings', label: 'Réglages', icon: '⚙️' },
 ];
 

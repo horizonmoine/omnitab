@@ -21,10 +21,27 @@ import { useStemSync } from '../hooks/useStemSync';
 import { HealerOverlay } from './HealerOverlay';
 import { Button, ErrorStrip } from './primitives';
 
+/**
+ * Active setlist context — present when the viewer is showing a tab that's
+ * part of a playlist. Drives the Prev/Next bar at the top of the viewer.
+ * Owned by App.tsx; we just receive it and render the affordance.
+ */
+export interface SetlistViewerContext {
+  setlistId: number;
+  position: number;
+  total: number;
+  setlistName: string;
+}
+
 interface TabViewerProps {
   /** Binary data of a .gp/.gp5/.gpx file, OR a string of alphaTex / MusicXML. */
   source: ArrayBuffer | Uint8Array | string;
   onReady?: () => void;
+  /** When set, the viewer renders a setlist navigation bar at the top. */
+  setlistContext?: SetlistViewerContext;
+  onSetlistPrev?: () => void;
+  onSetlistNext?: () => void;
+  onSetlistExit?: () => void;
 }
 
 const CDN = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.5.0/dist';
@@ -35,7 +52,14 @@ interface TrackInfo {
   instrument: string;
 }
 
-export function TabViewer({ source, onReady }: TabViewerProps) {
+export function TabViewer({
+  source,
+  onReady,
+  setlistContext,
+  onSetlistPrev,
+  onSetlistNext,
+  onSetlistExit,
+}: TabViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<AlphaTabApi | null>(null);
   // Hidden file input the Healer "Choisir un audio" Button delegates to —
@@ -279,6 +303,53 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
   return (
     <div className="flex flex-col h-full">
+      {/* Setlist navigation bar — only shown when the viewer is invoked
+          from a setlist. Sits above the regular toolbar so it reads as
+          higher-level context ("which song in which playlist") before the
+          per-song controls. */}
+      {setlistContext && (
+        <div className="bg-amp-accent/10 border-b border-amp-accent px-3 py-2 flex items-center gap-2 flex-wrap">
+          <span className="text-amp-accent text-sm" aria-hidden="true">📋</span>
+          <span className="text-sm text-amp-text font-semibold truncate max-w-[20rem]">
+            {setlistContext.setlistName}
+          </span>
+          <span className="text-xs text-amp-muted tabular-nums whitespace-nowrap">
+            {setlistContext.position + 1} / {setlistContext.total}
+          </span>
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={onSetlistPrev}
+              disabled={setlistContext.position === 0}
+              className="px-3 py-1 text-sm"
+              aria-label="Tab précédente de la setlist"
+              title="Tab précédente"
+            >
+              ← Précédent
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onSetlistNext}
+              disabled={setlistContext.position >= setlistContext.total - 1}
+              className="px-3 py-1 text-sm"
+              aria-label="Tab suivante de la setlist"
+              title="Tab suivante"
+            >
+              Suivant →
+            </Button>
+            <Button
+              variant="secondary"
+              onClick={onSetlistExit}
+              className="px-2 py-1 text-sm"
+              aria-label="Sortir du mode setlist"
+              title="Sortir du mode setlist"
+            >
+              ✕
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/*
         Top toolbar — a DAW-style control surface. Most buttons here use
         `px-2 py-1.5 text-xs font-bold` which is tighter than any Button

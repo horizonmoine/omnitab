@@ -9,7 +9,7 @@
  */
 
 import Dexie, { type EntityTable } from 'dexie';
-import type { LibraryTab } from './types';
+import type { LibraryTab, Setlist } from './types';
 
 export interface Setting {
   key: string;
@@ -71,6 +71,7 @@ class OmniTabDB extends Dexie {
   recordings!: EntityTable<Recording, 'id'>;
   stems!: EntityTable<SavedStem, 'id'>;
   practice!: EntityTable<PracticeEntry, 'id'>;
+  setlists!: EntityTable<Setlist, 'id'>;
 
   constructor() {
     super('omnitab');
@@ -91,6 +92,17 @@ class OmniTabDB extends Dexie {
       recordings: '++id, createdAt',
       stems: '++id, songTitle, stemType, createdAt',
       practice: '++id, title, practiceDate, nextReviewDate',
+    });
+    // v4 — adds setlists. Existing tables don't change, but Dexie requires
+    // ALL store specs in every version() call (it diffs them to figure out
+    // which indexes to create/drop), so we re-state library/settings/etc.
+    this.version(4).stores({
+      library: '++id, title, artist, kind, addedAt, favorite, *tags',
+      settings: 'key',
+      recordings: '++id, createdAt',
+      stems: '++id, songTitle, stemType, createdAt',
+      practice: '++id, title, practiceDate, nextReviewDate',
+      setlists: '++id, name, updatedAt',
     });
   }
 }
@@ -293,4 +305,94 @@ export async function getDueForReview(): Promise<PracticeEntry[]> {
 
 export async function deletePracticeEntry(id: number): Promise<void> {
   await db.practice.delete(id);
+}
+
+// ───── Setlist helpers ─────
+
+export async function getAllSetlists(): Promise<Setlist[]> {
+  // Order by most-recently-updated so the user's active setlist is at the
+  // top — matches the mental model of "the playlist I was just editing".
+  return db.setlists.orderBy('updatedAt').reverse().toArray();
+}
+
+export async function createSetlist(name: string): Promise<number> {
+  const now = Date.now();
+  const id = await db.setlists.add({
+    name,
+    tabIds: [],
+    createdAt: now,
+    updatedAt: now,
+  });
+  return id as number;
+}
+
+export async function renameSetlist(id: number, name: string): Promise<void> {
+  await db.setlists.update(id, { name, updatedAt: Date.now() });
+}
+
+export async function deleteSetlist(id: number): Promise<void> {
+  await db.setlists.delete(id);
+}
+
+/**
+ * Append a tab id to a setlist (no-op if the tab is already in the list).
+ * Idempotent because adding the same song twice in a row is almost always
+ * a UI mis-tap rather than intent.
+ */
+export async function addTabToSetlist(
+  setlistId: number,
+  tabId: number,
+): Promise<void> {
+  const sl = await db.setlists.get(setlistId);
+  if (!sl) return;
+  if (sl.tabIds.includes(tabId)) return;
+  await db.setlists.update(setlistId, {
+    tabIds: [...sl.tabIds, tabId],
+    updatedAt: Date.now(),
+  });
+}
+
+export async function removeTabFromSetlist(
+  setlistId: number,
+  position: number,
+): Promise<void> {
+  const sl = await db.setlists.get(setlistId);
+  if (!sl) return;
+  if (position < 0 || position >= sl.tabIds.length) return;
+  const next = sl.tabIds.slice();
+  next.splice(position, 1);
+  await db.setlists.update(setlistId, {
+    tabIds: next,
+    updatedAt: Date.now(),
+  });
+}
+
+/**
+ * Move a tab within a setlist by `delta` positions (negative = up).
+ * Clamps to bounds — calling with delta=-1 on position 0 is a no-op rather
+ * than an error, so the caller doesn't have to guard against edge cases.
+ */
+export async function moveTabInSetlist(
+  setlistId: number,
+  position: number,
+  delta: number,
+): Promise<void> {
+  const sl = await db.setlists.get(setlistId);
+  if (!sl) return;
+  const target = position + delta;
+  if (
+    position < 0 ||
+    position >= sl.tabIds.length ||
+    target < 0 ||
+    target >= sl.tabIds.length
+  ) {
+    return;
+  }
+  const next = sl.tabIds.slice();
+  const [moved] = next.splice(position, 1);
+  next.splice(target, 0, moved);
+  await db.setlists.update(setlistId, {
+    tabIds: next,
+    updatedAt: Date.now(),
+  });
 }

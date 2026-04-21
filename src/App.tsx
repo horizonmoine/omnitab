@@ -19,6 +19,8 @@ import { Recorder } from './components/Recorder';
 import { Metronome } from './components/Metronome';
 import { Settings } from './components/Settings';
 import { ToastContainer } from './components/Toast';
+import { db, markOpened } from './lib/db';
+import { toast } from './components/Toast';
 
 // Lazy-loaded pages — each becomes a separate chunk.
 const TabViewer = lazy(() => import('./components/TabViewer').then((m) => ({ default: m.TabViewer })));
@@ -32,6 +34,7 @@ const EarTraining = lazy(() => import('./components/EarTraining').then((m) => ({
 const BackingTrack = lazy(() => import('./components/BackingTrack').then((m) => ({ default: m.BackingTrack })));
 const PracticeJournal = lazy(() => import('./components/PracticeJournal').then((m) => ({ default: m.PracticeJournal })));
 const TexEditor = lazy(() => import('./components/TexEditor').then((m) => ({ default: m.TexEditor })));
+const Setlists = lazy(() => import('./components/Setlists').then((m) => ({ default: m.Setlists })));
 
 interface PendingTab {
   data: ArrayBuffer | string;
@@ -41,6 +44,18 @@ interface PendingTab {
 interface PendingAudio {
   blob: Blob;
   label: string;
+}
+
+/**
+ * Active setlist context — `null` when the viewer is showing a tab opened
+ * directly from the library/transcriber, populated when the user is
+ * working through a setlist. Drives the Prev/Next bar in the viewer.
+ */
+interface SetlistContext {
+  setlistId: number;
+  position: number;
+  total: number;
+  setlistName: string;
 }
 
 function PageLoader() {
@@ -57,6 +72,9 @@ export function App() {
   const [page, setPage] = useState<Page>('search');
   const [pendingTab, setPendingTab] = useState<PendingTab | null>(null);
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
+  const [setlistContext, setSetlistContext] = useState<SetlistContext | null>(
+    null,
+  );
 
   // Check for shared tab in URL (?tab=base64-encoded-alphaTex).
   useEffect(() => {
@@ -96,6 +114,9 @@ export function App() {
   // Hand-off helpers ────────────────────────────────────────────────
   const openInViewer = (data: ArrayBuffer | string, title: string) => {
     setPendingTab({ data, title });
+    // Direct opens (Library, Transcriber, TexEditor, ?tab=…) always exit
+    // setlist mode — the user is breaking out of the playlist flow.
+    setSetlistContext(null);
     setPage('viewer');
   };
 
@@ -103,6 +124,54 @@ export function App() {
     setPendingAudio({ blob, label });
     setPage('transcribe');
   };
+
+  /**
+   * Load the tab at `position` within a setlist and switch to the viewer.
+   * Updates setlistContext so the viewer renders its Prev/Next bar.
+   */
+  const playSetlist = async (setlistId: number, position = 0) => {
+    const sl = await db.setlists.get(setlistId);
+    if (!sl) {
+      toast.error('Setlist introuvable.');
+      return;
+    }
+    if (sl.tabIds.length === 0) {
+      toast.error('Cette setlist est vide.');
+      return;
+    }
+    const safePos = Math.max(0, Math.min(position, sl.tabIds.length - 1));
+    const tabId = sl.tabIds[safePos];
+    const tab = await db.library.get(tabId);
+    if (!tab) {
+      toast.error(
+        `Tab #${tabId} introuvable — elle a peut-être été supprimée de la bibliothèque.`,
+      );
+      return;
+    }
+    if (tab.id != null) await markOpened(tab.id);
+    setPendingTab({
+      data: tab.data,
+      title: `${tab.artist} – ${tab.title}`,
+    });
+    setSetlistContext({
+      setlistId,
+      position: safePos,
+      total: sl.tabIds.length,
+      setlistName: sl.name,
+    });
+    setPage('viewer');
+  };
+
+  /** Step within the active setlist by ±1 (or any delta). Clamps to bounds. */
+  const navigateSetlist = (delta: number) => {
+    if (!setlistContext) return;
+    void playSetlist(
+      setlistContext.setlistId,
+      setlistContext.position + delta,
+    );
+  };
+
+  const exitSetlist = () => setSetlistContext(null);
 
   // Render the active page.
   const renderPage = () => {
@@ -113,7 +182,13 @@ export function App() {
         return <Library onTabSelected={openInViewer} />;
       case 'viewer':
         return pendingTab ? (
-          <TabViewer source={pendingTab.data} />
+          <TabViewer
+            source={pendingTab.data}
+            setlistContext={setlistContext ?? undefined}
+            onSetlistPrev={() => navigateSetlist(-1)}
+            onSetlistNext={() => navigateSetlist(1)}
+            onSetlistExit={exitSetlist}
+          />
         ) : (
           <ViewerPlaceholder onGoToSearch={() => setPage('search')} />
         );
@@ -148,6 +223,8 @@ export function App() {
         return <BackingTrack />;
       case 'practice':
         return <PracticeJournal />;
+      case 'setlists':
+        return <Setlists onPlaySetlist={playSetlist} />;
       case 'settings':
         return <Settings />;
       default:

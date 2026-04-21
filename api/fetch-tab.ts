@@ -1,5 +1,5 @@
 /**
- * Vercel Edge Function — arbitrary .gp / .xml / .tex file CORS proxy.
+ * Vercel Function (Fluid Compute) — arbitrary .gp / .xml / .tex file CORS proxy.
  *
  * Songsterr killed its public .gp download endpoint in 2024, but plenty
  * of smaller sites (mysongbook.com, azpro.de, tabs.ultimate-guitar.com
@@ -8,6 +8,11 @@
  *
  * This proxy fetches the URL, validates it's a reasonable tab file, and
  * streams the bytes back with CORS headers.
+ *
+ * Why Fluid Compute (not Edge): Edge has a 4 MB response cap, but our
+ * MAX_SIZE_BYTES is 10 MB. Fluid Compute has no such cap and gives us a
+ * 300s default timeout (vs Edge's 25s) — both nice-to-haves for proxying
+ * larger tab files from slow servers.
  *
  * Usage from the frontend:
  *   fetch('/api/fetch-tab?url=' + encodeURIComponent('https://…/song.gp5'))
@@ -19,12 +24,10 @@
  *   • 10 MB cap — rejects via Content-Length header if the server reports
  *     it, and again after reading if the server lied
  *   • 15s upstream timeout
- *   • Blocks private/loopback hostnames to curb naive SSRF. Vercel's Edge
- *     runtime already blocks private IPs at the network layer, but the
- *     hostname check catches obvious attempts early with a cleaner error.
+ *   • Blocks private/loopback hostnames to curb naive SSRF. Vercel
+ *     already blocks private IPs at the network layer, but the hostname
+ *     check catches obvious attempts early with a cleaner error.
  */
-
-export const config = { runtime: 'edge' };
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB — plenty for any real tab.
 const TIMEOUT_MS = 15000;
@@ -44,9 +47,9 @@ const ALLOWED_EXTENSIONS = [
 
 /**
  * Hostname prefixes that must never be proxied — RFC1918 private space,
- * loopback, and link-local. These are a best-effort safety net: Vercel's
- * Edge runtime already blocks private IPs at the network layer, but we
- * reject early with a clean error message.
+ * loopback, and link-local. These are a best-effort safety net: Vercel
+ * already blocks private IPs at the network layer, but we reject early
+ * with a clean error message.
  *
  * Each entry is either a full host (match ==) or a dotted prefix (match
  * startsWith). The trailing dot on numeric prefixes matters — without it

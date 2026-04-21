@@ -88,6 +88,38 @@ export interface LibraryTab {
   favorite: boolean;
   /** Free tags — e.g. ['fingerstyle', 'drop-d', 'metal']. */
   tags: string[];
+  /**
+   * Origin URL for tabs imported via /api/fetch-tab or transcribed from a
+   * YouTube link. Surfaced in the library row as a "↗ Source" link so the
+   * user can re-find or re-download the original. Optional — local-file
+   * imports and from-scratch transcriptions don't have one.
+   *
+   * No schema migration needed: IndexedDB tolerates new optional fields on
+   * existing records (they simply read back as undefined).
+   */
+  sourceUrl?: string;
+}
+
+// ───── Setlists ─────
+
+/**
+ * An ordered playlist of library tabs. Used for gigs, practice sessions,
+ * or any scenario where the user wants to flow through multiple songs
+ * without manually loading each one.
+ *
+ * `tabIds` references LibraryTab.id values — we deliberately don't embed
+ * the tab data here so renaming/editing a tab updates everywhere it's
+ * referenced. The trade-off: deleting a tab from the library leaves a
+ * dangling id in the setlist. The Setlists UI handles this by skipping
+ * missing tabs and showing a "tab introuvable" placeholder.
+ */
+export interface Setlist {
+  id?: number;
+  name: string;
+  /** Ordered library tab IDs. Order matters. */
+  tabIds: number[];
+  createdAt: number;
+  updatedAt: number;
 }
 
 // ───── Tuner ─────

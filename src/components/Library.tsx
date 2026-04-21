@@ -174,6 +174,7 @@ export function Library({ onTabSelected }: LibraryProps) {
           data: text,
           favorite: false,
           tags: ['imported', 'from-url'],
+          sourceUrl: trimmed,
         });
       } else if (BINARY_EXTENSIONS.has(ext)) {
         const buffer = await res.arrayBuffer();
@@ -186,6 +187,7 @@ export function Library({ onTabSelected }: LibraryProps) {
           data: buffer,
           favorite: false,
           tags: ['imported', 'from-url'],
+          sourceUrl: trimmed,
         });
       } else {
         // The proxy should have rejected this, but guard anyway in case
@@ -423,6 +425,22 @@ export function Library({ onTabSelected }: LibraryProps) {
                   </div>
                 )}
               </button>
+              {/* Source link — shown only for tabs imported from a URL or
+                  transcribed from YouTube. `target="_blank"` opens in a new
+                  tab; `rel="noopener noreferrer"` is mandatory to prevent
+                  the source page from accessing window.opener. */}
+              {tab.sourceUrl && (
+                <a
+                  href={tab.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amp-muted hover:text-amp-accent transition-colors flex-shrink-0 text-lg"
+                  aria-label={`Voir la source : ${tab.sourceUrl}`}
+                  title={tab.sourceUrl}
+                >
+                  ↗
+                </a>
+              )}
               <button
                 onClick={() => tab.id != null && deleteTab(tab.id)}
                 className="text-amp-muted hover:text-amp-error transition-colors flex-shrink-0"

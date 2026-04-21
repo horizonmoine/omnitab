@@ -225,6 +225,36 @@ export function TexEditor({ onTabReady }: TexEditorProps) {
     onTabReady(tex, title.trim() || 'Tab AlphaTex');
   }, [tex, title, onTabReady]);
 
+  // Keyboard shortcuts — Ctrl/Cmd+S to save, Ctrl/Cmd+Enter to open in viewer.
+  // Stash the latest handlers in refs so the global listener doesn't rebind
+  // on every keystroke (saveToLibrary / openInViewer change with `tex`+`title`).
+  const saveRef = useRef(saveToLibrary);
+  const openRef = useRef(openInViewer);
+  useEffect(() => {
+    saveRef.current = saveToLibrary;
+  }, [saveToLibrary]);
+  useEffect(() => {
+    openRef.current = openInViewer;
+  }, [openInViewer]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      if (!mod) return;
+      // Browsers default Ctrl+S to "save page as" — preventDefault is
+      // mandatory or the user gets a download dialog instead of a saved tab.
+      if (e.key === 's' || e.key === 'S') {
+        e.preventDefault();
+        void saveRef.current();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        openRef.current();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
   return (
     <div className="h-full overflow-y-auto p-6">
       <PageHeader
@@ -263,10 +293,15 @@ export function TexEditor({ onTabReady }: TexEditorProps) {
             variant="secondary"
             onClick={saveToLibrary}
             className="px-4 py-2 text-sm"
+            title="Sauvegarder dans la bibliothèque (Ctrl+S)"
           >
             💾 Sauvegarder
           </Button>
-          <Button onClick={openInViewer} className="px-4 py-2 text-sm">
+          <Button
+            onClick={openInViewer}
+            className="px-4 py-2 text-sm"
+            title="Ouvrir dans le lecteur (Ctrl+Entrée)"
+          >
             📖 Ouvrir dans le lecteur
           </Button>
         </div>
@@ -298,6 +333,10 @@ export function TexEditor({ onTabReady }: TexEditorProps) {
               {renderError}
             </ErrorStrip>
           )}
+          <div className="mt-1 text-[11px] text-amp-muted">
+            Raccourcis : <kbd className="px-1 py-0.5 bg-amp-panel-2 rounded border border-amp-border">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-amp-panel-2 rounded border border-amp-border">S</kbd> sauve ·{' '}
+            <kbd className="px-1 py-0.5 bg-amp-panel-2 rounded border border-amp-border">Ctrl</kbd>+<kbd className="px-1 py-0.5 bg-amp-panel-2 rounded border border-amp-border">Entrée</kbd> ouvre dans le lecteur
+          </div>
           <details className="mt-2 text-xs text-amp-muted">
             <summary className="cursor-pointer hover:text-amp-text">
               Aide-mémoire AlphaTex

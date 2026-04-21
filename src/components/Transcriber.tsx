@@ -32,6 +32,7 @@ import {
   fetchYoutubeAudio,
   isBackendAvailable,
   separateStem,
+  wakeBackend,
   type BackendHealth,
 } from '../lib/demucs-client';
 import { toast } from './Toast';
@@ -116,6 +117,31 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
   // Pipeline "Tout faire" state — chains yt-dlp → Demucs → basic-pitch.
   // Kept separate from `running` so progress/status UI can be reused cleanly.
   const [pipelining, setPipelining] = useState(false);
+
+  // Cold-start handling for the HF Space (free tier sleeps after 48h).
+  // `wakingUp` toggles the spinner; `wakeElapsedSec` is shown in the button
+  // so the user sees the wake actually progressing rather than a frozen UI.
+  const [wakingUp, setWakingUp] = useState(false);
+  const [wakeElapsedSec, setWakeElapsedSec] = useState(0);
+
+  const handleWakeBackend = async () => {
+    setWakingUp(true);
+    setWakeElapsedSec(0);
+    try {
+      const health = await wakeBackend((elapsedMs) => {
+        setWakeElapsedSec(Math.round(elapsedMs / 1000));
+      });
+      if (health) {
+        setBackend(health);
+        toast.success(`Backend réveillé (${health.device.toUpperCase()}).`);
+      } else {
+        toast.error('Le backend n\'a pas répondu après 90 secondes. Réessaye dans quelques instants.');
+      }
+    } finally {
+      setWakingUp(false);
+      setWakeElapsedSec(0);
+    }
+  };
 
   const importYoutube = async () => {
     if (!ytUrl.trim()) return;
@@ -372,12 +398,16 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
     try {
       let inputBlob: Blob = file!;
       let inputLabel = label;
+      // Capture the YT URL before we clear the input — we'll persist it as
+      // sourceUrl on the saved tab so the user can re-find the original.
+      let sourceYtUrl: string | undefined;
 
       // Step 1 — fetch YouTube audio (skipped if we already have a file).
       if (ytUrl.trim()) {
+        sourceYtUrl = ytUrl.trim();
         setProgress(0.03);
         setStatus('📥 Téléchargement YouTube (yt-dlp)…');
-        const yt = await fetchYoutubeAudio(ytUrl.trim());
+        const yt = await fetchYoutubeAudio(sourceYtUrl);
         inputBlob = yt.blob;
         inputLabel = yt.title;
         setFile(yt.blob);
@@ -482,6 +512,7 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         data: alphaTex,
         favorite: false,
         tags: ['ai-transcribed', modeTag, 'pipeline', 'demucs'],
+        sourceUrl: sourceYtUrl,
       });
 
       setProgress(1);
@@ -577,9 +608,21 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
               {ytFetching ? '⏳…' : '📥 Importer'}
             </Button>
           </div>
-          {!backend && (
-            <div className="text-xs text-amp-muted mt-1">
-              Backend requis — configure l'URL dans Réglages.
+          {!backend && !backendChecking && (
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-amp-muted">
+              <span>
+                Backend assoupi (le HF Space gratuit dort après 48h).
+              </span>
+              <Button
+                variant="secondary"
+                onClick={handleWakeBackend}
+                disabled={wakingUp}
+                className="px-3 py-1 text-xs"
+              >
+                {wakingUp
+                  ? `⏳ Réveil… ${wakeElapsedSec}s`
+                  : '🔌 Réveiller le backend'}
+              </Button>
             </div>
           )}
         </div>
@@ -660,9 +703,9 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
               )}
               {!backendChecking && !backend && (
                 <>
-                  Backend Demucs non joignable. Démarre{' '}
-                  <code className="text-amp-accent">backend/server.py</code>{' '}
-                  pour activer cette option.
+                  Backend Demucs assoupi (HF Space gratuit). Utilise le bouton{' '}
+                  <strong>« Réveiller le backend »</strong> ci-dessus, puis
+                  recoche cette case.
                 </>
               )}
             </div>

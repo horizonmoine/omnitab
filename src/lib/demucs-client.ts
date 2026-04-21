@@ -11,15 +11,16 @@
 
 // Compile-time fallback. In dev we default to the local FastAPI server so
 // `npm run dev` just works when the user has the Python backend running.
-// In prod we default to empty string — Vercel serves OmniTab over HTTPS
-// and hitting `http://localhost:8000` would be blocked as mixed-content,
-// logging a scary error on every boot. An empty URL signals "no backend
-// configured" and `isBackendAvailable()` short-circuits to `null` without
-// making any network call. Users who want Demucs in prod paste their HF
-// Space URL into Settings → Backend Demucs.
+// In prod we default to the official OmniTab HF Space — that way YouTube
+// import + Demucs work out of the box without forcing every user through
+// the Settings page on first launch. Self-hosters can override at build
+// time via `VITE_DEMUCS_API`, and end-users can override at runtime via
+// Settings → Backend Demucs (which writes globalThis.__OMNITAB_DEMUCS_URL__).
 const BACKEND_URL_FALLBACK =
   (import.meta.env.VITE_DEMUCS_API as string | undefined) ??
-  (import.meta.env.DEV ? 'http://localhost:8000' : '');
+  (import.meta.env.DEV
+    ? 'http://localhost:8000'
+    : 'https://horizonmoine30-omnitab-demucs.hf.space');
 
 /**
  * Resolve the effective backend URL at call time — this picks up any user
@@ -56,12 +57,12 @@ export interface BackendHealth {
  * Ping le backend. Renvoie `null` s'il est injoignable — l'UI utilise ça
  * pour savoir si on peut afficher les options "isoler avec Demucs".
  *
- * Short-circuits immediately to `null` when no backend URL is configured
- * (the prod default). This avoids a pointless `fetch('')` or mixed-content
- * error against `http://localhost` from an HTTPS page.
+ * Default 3s timeout: enough to catch a warm HF Space (typically <500ms),
+ * short enough that a sleeping Space doesn't block the page on mount. Use
+ * `wakeBackend()` instead when you want to wait for a cold start.
  */
 export async function isBackendAvailable(
-  timeoutMs = 1500,
+  timeoutMs = 3000,
 ): Promise<BackendHealth | null> {
   const url = getBackendUrl();
   if (!url) return null;
@@ -79,6 +80,35 @@ export async function isBackendAvailable(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/**
+ * Wake a sleeping HF Space. Polls `/health` for up to 90s with a 5s
+ * per-attempt timeout — Spaces wake within 30-60s typically, so 90s gives
+ * a comfortable margin. Returns the BackendHealth on success or `null` if
+ * the Space never came up.
+ *
+ * Calls `onAttempt(elapsedMs)` between probes so the UI can show progress.
+ * The progress is "wall-clock since wake started" rather than a percentage
+ * because we don't actually know how long the Space will take to wake.
+ */
+export async function wakeBackend(
+  onAttempt?: (elapsedMs: number) => void,
+  maxWaitMs = 90_000,
+): Promise<BackendHealth | null> {
+  const url = getBackendUrl();
+  if (!url) return null;
+
+  const start = Date.now();
+  while (Date.now() - start < maxWaitMs) {
+    const elapsed = Date.now() - start;
+    onAttempt?.(elapsed);
+    const health = await isBackendAvailable(5000);
+    if (health) return health;
+    // Brief breather between probes so we don't hammer a waking Space.
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  return null;
 }
 
 export interface SeparateProgress {
