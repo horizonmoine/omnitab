@@ -424,9 +424,9 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         )}
       </section>
 
-      {/* Étape 3 — Options. Native <select>s stay raw (no primitive yet),
-          Demucs panel stays raw because its disabled border/opacity state
-          depends on `backend` and is specific to this page. */}
+      {/* Étape 3 — Options. Tuning + capo use the Select primitive; the
+          Demucs panel below stays raw because its disabled border/opacity
+          state depends on `backend` and is specific to this page. */}
       <section className="mb-6 max-w-md">
         <SectionLabel className="mb-2 text-xs">3. Options</SectionLabel>
 

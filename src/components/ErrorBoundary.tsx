@@ -11,6 +11,7 @@
  */
 
 import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Button } from './primitives';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -87,19 +88,19 @@ export class ErrorBoundary extends Component<
             </pre>
           </details>
 
+          {/* Recovery actions. Override Button's px-6 down to px-4 so the
+              two CTAs fit comfortably side-by-side in the modal footer. */}
           <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={this.handleReset}
-              className="bg-amp-panel-2 hover:bg-amp-border text-amp-text px-4 py-2 rounded text-sm transition-colors"
-            >
+            <Button variant="secondary" onClick={this.handleReset}>
               Essayer de continuer
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="primary"
               onClick={this.handleReload}
-              className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-4 py-2 rounded text-sm transition-colors"
+              className="px-4 py-2 text-sm"
             >
               <span aria-hidden="true">🔄 </span>Recharger l'app
-            </button>
+            </Button>
           </div>
         </div>
       </div>
