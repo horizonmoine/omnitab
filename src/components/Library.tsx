@@ -22,6 +22,12 @@ import {
 import { detectGpFormat } from '../lib/songsterr-api';
 import type { LibraryTab, TabKind } from '../lib/types';
 import { Button, Card, Input, Select } from './primitives';
+import { toast } from './Toast';
+
+/** File extensions our library accepts. Binary formats get ArrayBuffer
+ *  storage; textual formats get string storage (the db layer handles both). */
+const BINARY_EXTENSIONS = new Set(['gp', 'gp3', 'gp4', 'gp5', 'gpx', 'mxl']);
+const TEXT_EXTENSIONS = new Set(['xml', 'musicxml', 'tex', 'alphatex']);
 
 interface LibraryProps {
   onTabSelected: (data: ArrayBuffer | string, title: string) => void;
@@ -49,6 +55,11 @@ export function Library({ onTabSelected }: LibraryProps) {
   const [search, setSearch] = useState('');
   const [sortBy, setSortBy] = useState<SortKey>('addedAt');
   const [dragOver, setDragOver] = useState(false);
+
+  // URL import — inline form that expands when the user clicks "🔗 URL".
+  const [urlFormOpen, setUrlFormOpen] = useState(false);
+  const [urlValue, setUrlValue] = useState('');
+  const [urlFetching, setUrlFetching] = useState(false);
 
   const allTabs = useLiveQuery(() => db.library.toArray());
 
@@ -90,7 +101,7 @@ export function Library({ onTabSelected }: LibraryProps) {
   const importFiles = useCallback(async (files: FileList | File[]) => {
     for (const file of Array.from(files)) {
       const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-      const isText = ['xml', 'musicxml', 'tex', 'alphatex'].includes(ext);
+      const isText = TEXT_EXTENSIONS.has(ext);
 
       if (isText) {
         const text = await file.text();
@@ -124,6 +135,74 @@ export function Library({ onTabSelected }: LibraryProps) {
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
+  /**
+   * Fetch a tab file from an arbitrary URL through our Edge proxy, then
+   * save it using the same pipeline as file imports. The proxy enforces
+   * HTTPS, an extension whitelist, and a 10 MB size cap — see
+   * api/fetch-tab.ts for the exact checks.
+   */
+  const importFromUrl = useCallback(async (rawUrl: string) => {
+    const trimmed = rawUrl.trim();
+    if (!trimmed) return;
+
+    setUrlFetching(true);
+    try {
+      const res = await fetch(
+        `/api/fetch-tab?url=${encodeURIComponent(trimmed)}`,
+      );
+
+      if (!res.ok) {
+        const { error } = (await res.json().catch(() => ({
+          error: `HTTP ${res.status}`,
+        }))) as { error?: string };
+        throw new Error(error ?? `Échec HTTP ${res.status}`);
+      }
+
+      // Derive filename + extension from the upstream URL (not the proxy).
+      const urlPath = new URL(trimmed).pathname;
+      const filename = urlPath.split('/').pop() ?? 'tab';
+      const ext = filename.split('.').pop()?.toLowerCase() ?? '';
+      const title = filename.replace(/\.[^.]+$/, '');
+
+      if (TEXT_EXTENSIONS.has(ext)) {
+        const text = await res.text();
+        await addTabToLibrary({
+          title,
+          artist: 'URL importée',
+          kind: 'original',
+          format: ext,
+          data: text,
+          favorite: false,
+          tags: ['imported', 'from-url'],
+        });
+      } else if (BINARY_EXTENSIONS.has(ext)) {
+        const buffer = await res.arrayBuffer();
+        const format = detectGpFormat(buffer);
+        await addTabToLibrary({
+          title,
+          artist: 'URL importée',
+          kind: 'original',
+          format,
+          data: buffer,
+          favorite: false,
+          tags: ['imported', 'from-url'],
+        });
+      } else {
+        // The proxy should have rejected this, but guard anyway in case
+        // someone slips through via query-string extension trickery.
+        throw new Error(`Extension non supportée: .${ext}`);
+      }
+
+      toast.success(`Importé : ${title}`);
+      setUrlValue('');
+      setUrlFormOpen(false);
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setUrlFetching(false);
+    }
+  }, []);
+
   // Drag & drop handlers.
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -152,20 +231,30 @@ export function Library({ onTabSelected }: LibraryProps) {
       onDrop={handleDrop}
     >
       {/* Header */}
-      <div className="flex items-center justify-between mb-4 gap-3">
+      <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
         <div>
           <h2 className="text-2xl font-bold">Bibliothèque</h2>
           <p className="text-xs text-amp-muted mt-0.5">
             {tabCount} tab{tabCount !== 1 ? 's' : ''} · {favCount} favori{favCount !== 1 ? 's' : ''}
           </p>
         </div>
-        <Button
-          variant="secondary"
-          onClick={() => fileInputRef.current?.click()}
-          aria-label="Importer un fichier"
-        >
-          <span aria-hidden="true">📁 </span>Importer
-        </Button>
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="Importer un fichier"
+          >
+            <span aria-hidden="true">📁 </span>Importer
+          </Button>
+          <Button
+            variant="secondary"
+            onClick={() => setUrlFormOpen((v) => !v)}
+            aria-label="Importer depuis une URL"
+            aria-expanded={urlFormOpen}
+          >
+            <span aria-hidden="true">🔗 </span>URL
+          </Button>
+        </div>
         <input
           ref={fileInputRef}
           type="file"
@@ -175,6 +264,63 @@ export function Library({ onTabSelected }: LibraryProps) {
           className="hidden"
         />
       </div>
+
+      {/* URL import panel — collapses when closed so it doesn't shove the
+          list around. Submit on Enter, Esc to cancel. */}
+      {urlFormOpen && (
+        <Card className="mb-4 max-w-2xl" padding="p-3">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              importFromUrl(urlValue);
+            }}
+            className="flex flex-col gap-2"
+          >
+            <label className="text-xs text-amp-muted" htmlFor="url-input">
+              Colle une URL directe vers un fichier .gp / .gp5 / .xml / .tex
+              (max 10 Mo). Beaucoup de sites (mysongbook, azpro…) hébergent des
+              tabs en libre accès.
+            </label>
+            <div className="flex gap-2">
+              <Input
+                id="url-input"
+                type="url"
+                value={urlValue}
+                onChange={(e) => setUrlValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    setUrlFormOpen(false);
+                    setUrlValue('');
+                  }
+                }}
+                placeholder="https://example.com/song.gp5"
+                disabled={urlFetching}
+                autoFocus
+                className="flex-1 font-mono text-sm disabled:opacity-50"
+              />
+              <Button
+                type="submit"
+                disabled={!urlValue.trim() || urlFetching}
+                className="px-4 py-2 text-sm whitespace-nowrap"
+              >
+                {urlFetching ? '⏳…' : 'Importer'}
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setUrlFormOpen(false);
+                  setUrlValue('');
+                }}
+                disabled={urlFetching}
+                className="px-4 py-2 text-sm"
+              >
+                Annuler
+              </Button>
+            </div>
+          </form>
+        </Card>
+      )}
 
       {/* Search bar */}
       <Input

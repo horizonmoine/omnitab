@@ -38,15 +38,16 @@ Built for Samsung A52s + iRig Micro Amp. Works 100% offline after first load.
 src/
 ├── App.tsx              # Main shell — lazy-loaded routing (React.lazy + Suspense)
 ├── main.tsx             # Entry: PWA registration + basic-pitch model prefetch
-├── components/          # 16 page components + Toast system
+├── components/          # 17 page components + Toast system
 │   ├── TabViewer.tsx    # AlphaTab Pro (tracks, loop, count-in, zoom, speed, share)
 │   ├── TabSearch.tsx    # Songsterr search → open on Songsterr
-│   ├── Library.tsx      # IndexedDB library (search, sort, drag&drop, favorites)
+│   ├── Library.tsx      # IndexedDB library (search, sort, drag&drop, favorites, URL import)
 │   ├── Tuner.tsx        # Real-time pitch detection
 │   ├── Metronome.tsx    # Web Audio look-ahead scheduler
 │   ├── AmpSim.tsx       # Drive → 3-band EQ → master chain
 │   ├── Recorder.tsx     # MediaRecorder + waveform + speed control
-│   ├── Transcriber.tsx  # basic-pitch → Viterbi → alphaTex pipeline
+│   ├── Transcriber.tsx  # basic-pitch → Viterbi → alphaTex pipeline + YT "Tout faire" pipeline
+│   ├── TexEditor.tsx    # AlphaTex live editor with split-pane preview
 │   ├── StemPlayer.tsx   # Offline mixer (mute/solo/volume per stem)
 │   ├── ChordLibrary.tsx # SVG chord diagrams (12 roots × 12 qualities)
 │   ├── SpeedTrainer.tsx # Progressive tempo practice
@@ -58,7 +59,7 @@ src/
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
 │   ├── HealerOverlay.tsx # Coloured dots over AlphaTab glyphs (click-to-seek)
-│   ├── primitives.tsx   # Design system: Button, Input, Card, SectionLabel, PageHeader, Readout, ErrorStrip, Knob
+│   ├── primitives.tsx   # Design system: Button, Input, Select, Card, SectionLabel, PageHeader, Readout, ErrorStrip, Knob
 │   └── ErrorBoundary.tsx
 ├── hooks/               # Feature-isolated React hooks (consumed by TabViewer)
 │   ├── useRocksmith.ts    # Mic detector + hit/miss stats + flash
@@ -92,7 +93,8 @@ src/
 ├── workers/
 │   └── basic-pitch.worker.ts  # TF.js inference (module cached)
 api/
-└── songsterr.ts         # Vercel Edge Function CORS proxy
+├── songsterr.ts         # Vercel Edge Function CORS proxy
+└── fetch-tab.ts         # Edge proxy for arbitrary .gp/.xml/.tex URLs (10 MB cap)
 hf-space/
 ├── Dockerfile           # python:3.10-slim + torch 2.5.1 CPU
 ├── app.py               # FastAPI + Demucs htdemucs
@@ -101,14 +103,17 @@ hf-space/
 
 ## Key Features
 
-- **16 pages:** Search, Library, Viewer, Tuner, Metronome, Amp, Record, Transcribe, Stems, Chords, Speed Trainer, Scales, Ear Training, Backing Track, Practice Journal, Settings
-- **Lazy loading:** 9 heavy pages are code-split via React.lazy (TabViewer, Transcriber, AmpSim, StemPlayer, ChordLibrary, SpeedTrainer, ScaleLibrary, EarTraining, BackingTrack)
+- **17 pages:** Search, Library, Viewer, Tuner, Metronome, Amp, Record, Transcribe, Tex Editor, Stems, Chords, Speed Trainer, Scales, Ear Training, Backing Track, Practice Journal, Settings
+- **Lazy loading:** 10 heavy pages are code-split via React.lazy (TabViewer, Transcriber, TexEditor, AmpSim, StemPlayer, ChordLibrary, SpeedTrainer, ScaleLibrary, EarTraining, BackingTrack)
 - **Tab sharing:** `?tab=<base64>` URL param encodes alphaTex for link sharing
 - **Toast notifications:** `toast.success()` / `toast.error()` / `toast.info()` — global, no context needed
 - **Web MIDI:** Foot pedal support for play/pause, loop, speed control (Settings page)
 - **Voice commands:** French-language hands-free control via Web Speech API (Settings page)
 - **PWA install prompt:** Shown in Settings when `beforeinstallprompt` fires
 - **Practice Journal (SRS):** SuperMemo-2 spaced repetition for maintaining song repertoire
+- **YouTube "Tout faire" pipeline:** One-click chain YT URL → Demucs 4 stems (saved) → basic-pitch on the cleanest stem → tab auto-saved (Transcribe page)
+- **Import from URL:** Paste any .gp/.xml/.tex URL in Library → /api/fetch-tab proxies it with HTTPS-only + extension whitelist + 10 MB cap
+- **AlphaTex live editor:** Textarea + debounced AlphaTab preview + starter templates (Tex Editor page)
 
 ## Conventions
 

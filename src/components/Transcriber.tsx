@@ -113,6 +113,10 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
   const [ytUrl, setYtUrl] = useState('');
   const [ytFetching, setYtFetching] = useState(false);
 
+  // Pipeline "Tout faire" state — chains yt-dlp → Demucs → basic-pitch.
+  // Kept separate from `running` so progress/status UI can be reused cleanly.
+  const [pipelining, setPipelining] = useState(false);
+
   const importYoutube = async () => {
     if (!ytUrl.trim()) return;
     if (!backend) {
@@ -332,6 +336,169 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
     }
   };
 
+  /**
+   * "Tout faire" — end-to-end pipeline from YouTube URL (or local file) to
+   * a fully transcribed tab + 4 offline stems, all saved to IndexedDB.
+   *
+   * Progress budget:
+   *   0–15%  : yt-dlp download (or skipped if a local file is already set)
+   *   15–70% : Demucs — 4 stems saved to IndexedDB (~13.75% each)
+   *   70–72% : audio decode + resample on the isolated stem
+   *   72–97% : basic-pitch polyphonic note detection
+   *   97–100%: Viterbi fret placement + alphaTex + library save
+   *
+   * Stem selection for basic-pitch input:
+   *   • mode='guitar'       → 'other'  (htdemucs lumps guitars+piano here)
+   *   • mode='vocal-chords' → 'vocals' (clean isolated voice)
+   * This dodges the htdemucs_6s requirement and gives basic-pitch a much
+   * cleaner signal than the raw mix.
+   */
+  const runFullPipeline = async () => {
+    if (!backend) {
+      toast.error('Backend requis pour le pipeline complet.');
+      return;
+    }
+    if (!ytUrl.trim() && !file) {
+      toast.error('Colle une URL YouTube ou choisis un fichier audio.');
+      return;
+    }
+
+    setError(null);
+    setResultTex(null);
+    setTranscription(null);
+    setPipelining(true);
+    setProgress(0);
+
+    try {
+      let inputBlob: Blob = file!;
+      let inputLabel = label;
+
+      // Step 1 — fetch YouTube audio (skipped if we already have a file).
+      if (ytUrl.trim()) {
+        setProgress(0.03);
+        setStatus('📥 Téléchargement YouTube (yt-dlp)…');
+        const yt = await fetchYoutubeAudio(ytUrl.trim());
+        inputBlob = yt.blob;
+        inputLabel = yt.title;
+        setFile(yt.blob);
+        setLabel(yt.title);
+        setYtUrl('');
+        setProgress(0.15);
+        setStatus(`✅ Audio récupéré : ${yt.title}`);
+      }
+
+      const songTitle = inputLabel || 'Pipeline sans titre';
+
+      // Step 2 — Demucs, 4 stems, saved to IndexedDB as we go.
+      const stemTypes = ['vocals', 'drums', 'bass', 'other'] as const;
+      const stemBlobs: Partial<Record<(typeof stemTypes)[number], Blob>> = {};
+      for (let i = 0; i < stemTypes.length; i++) {
+        const stem = stemTypes[i];
+        const baseProgress = 0.15 + (i / stemTypes.length) * 0.55;
+        setProgress(baseProgress);
+        setStatus(`🐍 Demucs — stem ${stem} (${i + 1}/${stemTypes.length})…`);
+        const blob = await separateStem(inputBlob, stem);
+        stemBlobs[stem] = blob;
+        const durationEstimate = blob.size / 44100;
+        await saveStem(songTitle, stem, blob, durationEstimate);
+      }
+      setProgress(0.7);
+      setStatus('✅ 4 stems sauvegardés hors-ligne.');
+
+      // Step 3 — pick the cleanest stem for basic-pitch and decode it.
+      const transcriptionSource =
+        mode === 'guitar' ? stemBlobs.other : stemBlobs.vocals;
+      if (!transcriptionSource) {
+        throw new Error('Stem source introuvable pour la transcription.');
+      }
+      setProgress(0.71);
+      setStatus(
+        `Décodage du stem "${mode === 'guitar' ? 'other' : 'vocals'}"…`,
+      );
+      const audioBuffer = await decodeAndResample(transcriptionSource, 22050);
+
+      // Step 4 — basic-pitch. Map its 0..1 progress into our 72..97% slice.
+      const detected = await transcribeAudio(
+        audioBuffer,
+        undefined,
+        ({ progress: p, status: s }) => {
+          setProgress(0.72 + p * 0.25);
+          setStatus(s);
+        },
+      );
+
+      // Step 5 — Viterbi fret placement + tempo + alphaTex.
+      setProgress(0.97);
+      setStatus('Placement des notes sur le manche…');
+      const effectiveTuning = applyCapo(tuning, capo);
+      const { costWeights } = getSettings();
+      const tabNotes = runModePipeline(
+        mode,
+        detected,
+        effectiveTuning,
+        costWeights,
+      );
+
+      if (tabNotes.length === 0) {
+        throw new Error(
+          `Aucune note détectée dans le stem "${
+            mode === 'guitar' ? 'other' : 'vocals'
+          }". Essaie en mode brut sans pipeline.`,
+        );
+      }
+
+      const { bpm: detectedBpm, confidence: tempoConf } = detectTempo(detected);
+      const tempoBpm = tempoConf > 0.2 ? detectedBpm : 120;
+
+      const transcriptionData: Transcription = {
+        notes: tabNotes,
+        tuning: effectiveTuning,
+        capo,
+        durationSeconds: audioBuffer.duration,
+        tempoBpm,
+      };
+      setTranscription(transcriptionData);
+
+      const modeLabel = mode === 'guitar' ? 'Guitare réelle' : 'Chant+accords';
+      const alphaTex = transcriptionToAlphaTex(
+        transcriptionData,
+        songTitle,
+        modeLabel,
+      );
+      setResultTex(alphaTex);
+
+      // Step 6 — auto-save to library. The pipeline always lands in the lib
+      // (unlike the manual `run` which leaves saving to the user) because
+      // running 5 minutes of compute without persisting would be cruel.
+      setProgress(0.99);
+      setStatus('Sauvegarde dans la bibliothèque…');
+      const kind = mode === 'guitar' ? 'generated' : 'cover';
+      const modeTag = mode === 'guitar' ? 'guitare-reelle' : 'chant-accords';
+      await addTabToLibrary({
+        title: songTitle,
+        artist: mode === 'guitar' ? 'Transcrit (IA)' : 'Arrangé (IA)',
+        kind,
+        format: 'tex',
+        data: alphaTex,
+        favorite: false,
+        tags: ['ai-transcribed', modeTag, 'pipeline', 'demucs'],
+      });
+
+      setProgress(1);
+      setStatus(
+        `🎉 Pipeline terminé : ${tabNotes.length} notes · 4 stems · ${tempoBpm} BPM.`,
+      );
+      toast.success(`Pipeline OK — "${songTitle}" est dans la bibliothèque.`);
+    } catch (err) {
+      console.error(err);
+      setError(
+        err instanceof Error ? err.message : 'Erreur pendant le pipeline.',
+      );
+    } finally {
+      setPipelining(false);
+    }
+  };
+
   const activeMode = MODES.find((m) => m.id === mode)!;
 
   return (
@@ -505,17 +672,43 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
 
       {/* Étape 4 — Lancement */}
       <section className="mb-6">
-        <Button
-          onClick={run}
-          disabled={!file || running}
-          className="px-6 py-3"
-        >
-          {running
-            ? '⏳ Transcription en cours…'
-            : `${activeMode.icon} Lancer la transcription`}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            onClick={run}
+            disabled={!file || running || pipelining}
+            className="px-6 py-3"
+          >
+            {running
+              ? '⏳ Transcription en cours…'
+              : `${activeMode.icon} Lancer la transcription`}
+          </Button>
 
-        {(running || progress > 0) && (
+          {/* End-to-end pipeline — only shown when the Demucs backend is
+              reachable, since the whole point is to leverage stem separation. */}
+          {backend && (
+            <Button
+              onClick={runFullPipeline}
+              disabled={
+                (!ytUrl.trim() && !file) || pipelining || running
+              }
+              className="px-6 py-3"
+            >
+              {pipelining
+                ? '⏳ Pipeline en cours…'
+                : '🚀 Tout faire (audio → stems + tab)'}
+            </Button>
+          )}
+        </div>
+
+        {backend && (
+          <p className="mt-2 text-xs text-amp-muted max-w-md">
+            <strong>Tout faire</strong> chaîne YouTube/fichier → Demucs (4 stems
+            hors-ligne) → basic-pitch sur le stem le plus propre → tab sauvée
+            dans la bibliothèque.
+          </p>
+        )}
+
+        {(running || pipelining || progress > 0) && (
           <div className="mt-4 max-w-md">
             <div
               className="text-sm text-amp-muted mb-1"

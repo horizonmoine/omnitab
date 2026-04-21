@@ -16,6 +16,7 @@ export type Page =
   | 'amp'
   | 'record'
   | 'transcribe'
+  | 'tex-editor'
   | 'metronome'
   | 'stems'
   | 'chords'
@@ -41,6 +42,7 @@ const NAV: NavItem[] = [
   { id: 'amp', label: 'Ampli', icon: '🎚️' },
   { id: 'record', label: 'Enregistrer', icon: '🎙️' },
   { id: 'transcribe', label: 'Transcrire', icon: '🤖' },
+  { id: 'tex-editor', label: 'Éditeur Tex', icon: '✍️' },
   { id: 'stems', label: 'Stems', icon: '🎛️' },
   { id: 'chords', label: 'Accords', icon: '🎵' },
   { id: 'speed-trainer', label: 'Speed Trainer', icon: '🏎️' },

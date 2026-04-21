@@ -31,6 +31,7 @@ const ScaleLibrary = lazy(() => import('./components/ScaleLibrary').then((m) => 
 const EarTraining = lazy(() => import('./components/EarTraining').then((m) => ({ default: m.EarTraining })));
 const BackingTrack = lazy(() => import('./components/BackingTrack').then((m) => ({ default: m.BackingTrack })));
 const PracticeJournal = lazy(() => import('./components/PracticeJournal').then((m) => ({ default: m.PracticeJournal })));
+const TexEditor = lazy(() => import('./components/TexEditor').then((m) => ({ default: m.TexEditor })));
 
 interface PendingTab {
   data: ArrayBuffer | string;
@@ -129,6 +130,8 @@ export function App() {
             onTabReady={(tex, title) => openInViewer(tex, title)}
           />
         );
+      case 'tex-editor':
+        return <TexEditor onTabReady={openInViewer} />;
       case 'metronome':
         return <Metronome />;
       case 'stems':
