@@ -127,11 +127,12 @@ hf-space/
 - **Design primitives** — import from `./primitives` before hand-rolling panels/buttons. Exports:
   - `Button` — 7 variants: `primary` (amber), `destructive` (red), `secondary` (panel-2), `chip` / `chipOn` (filter toggles), `pill` / `pillStop` (round start/stop CTAs)
   - `Input` — text field with amber focus ring
+  - `Select` — native `<select>` wearing the amp-panel chrome. Keeps native keyboard / mobile-picker / screen-reader behaviour for free
   - `Card` — `bg-amp-panel` + border + rounded wrapper (`padding` prop, `interactive` for hover-on-amber rows). Forwards all `<div>` HTML attributes
   - `SectionLabel` — the UPPERCASE-tracked muted caption pattern (presets / signature / tap tempo)
   - `PageHeader` — `title` + optional `subtitle` at the top of every page
   - `Readout` — mono + **tabular-nums** number display. Use for ANY live-updating number (BPM, Hz, cents, timer) to avoid digit-width jitter
-  - `ErrorStrip` — the `/20` tinted red alert panel
+  - `ErrorStrip` — the `/20` tinted red alert panel. Forwards `<div>` HTML attributes so callers can add `role="alert"` / `aria-live`
   - `Knob` — SVG rotary knob with arc + needle (AmpSim drive/EQ/master). Keeps caller's real units (e.g. -12..+12 dB), normalises internally for arc maths. Optional `format(v) → string`, `color`, `step` props. Drag/keyboard/touch handled via invisible `<input type="range">` overlay
 
 ## Commands
