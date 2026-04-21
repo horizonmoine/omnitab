@@ -19,6 +19,7 @@ import { useTakeRecorder } from '../hooks/useTakeRecorder';
 import { useTabHealer } from '../hooks/useTabHealer';
 import { useStemSync } from '../hooks/useStemSync';
 import { HealerOverlay } from './HealerOverlay';
+import { Button, ErrorStrip } from './primitives';
 
 interface TabViewerProps {
   /** Binary data of a .gp/.gp5/.gpx file, OR a string of alphaTex / MusicXML. */
@@ -37,6 +38,9 @@ interface TrackInfo {
 export function TabViewer({ source, onReady }: TabViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const apiRef = useRef<AlphaTabApi | null>(null);
+  // Hidden file input the Healer "Choisir un audio" Button delegates to —
+  // same pattern as Library's import button.
+  const healerFileRef = useRef<HTMLInputElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState(100);
   const [isLoading, setIsLoading] = useState(true);
@@ -275,28 +279,40 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Top toolbar */}
+      {/*
+        Top toolbar — a DAW-style control surface. Most buttons here use
+        `px-2 py-1.5 text-xs font-bold` which is tighter than any Button
+        variant (chip = px-3 py-1 text-sm), so toggles stay raw. We still
+        wire `aria-pressed`/`aria-label` everywhere so screen readers get
+        the toggle semantics even when the visual shell is bespoke.
+      */}
       <div className="bg-amp-panel border-b border-amp-border px-3 py-2">
         {/* Row 1: Play controls + speed */}
         <div className="flex items-center gap-2 flex-wrap">
-          <button
+          <Button
+            variant="primary"
             onClick={togglePlay}
             disabled={isLoading}
-            className="rounded bg-amp-accent hover:bg-amp-accent-hover disabled:bg-amp-muted disabled:cursor-not-allowed text-amp-bg font-bold px-4 py-1.5 transition-colors"
+            aria-label={isPlaying ? 'Pause' : 'Lecture'}
+            className="px-4 py-1.5"
           >
             {isPlaying ? '⏸' : '▶'}
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="secondary"
             onClick={stop}
             disabled={isLoading}
-            className="rounded bg-amp-panel-2 hover:bg-amp-border text-amp-text px-3 py-1.5 transition-colors"
+            aria-label="Arrêter"
+            className="px-3 py-1.5"
           >
             ⏹
-          </button>
+          </Button>
 
           {/* Count-in toggle */}
           <button
             onClick={() => setCountIn((c) => !c)}
+            aria-pressed={countIn}
+            aria-label="Décompte avant lecture"
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               countIn
                 ? 'bg-amp-accent text-amp-bg'
@@ -310,6 +326,8 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           {/* Loop toggle */}
           <button
             onClick={toggleLoop}
+            aria-pressed={looping}
+            aria-label="Lecture en boucle"
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               looping
                 ? 'bg-amp-accent text-amp-bg'
@@ -323,6 +341,10 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           {/* Take recorder */}
           <button
             onClick={take.toggle}
+            aria-pressed={take.taking}
+            aria-label={
+              take.taking ? 'Arrêter et sauvegarder la prise' : 'Enregistrer une prise'
+            }
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               take.taking
                 ? 'bg-amp-error text-white animate-pulse'
@@ -336,6 +358,8 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           {/* Stem-sync toggle */}
           <button
             onClick={() => stems.setOpen((o) => !o)}
+            aria-pressed={stems.open || !!stems.active}
+            aria-label="Stems synchronisés"
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               stems.open || stems.active
                 ? 'bg-amp-accent text-amp-bg'
@@ -349,6 +373,8 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           {/* Tab Healer toggle */}
           <button
             onClick={() => healer.setOpen((o) => !o)}
+            aria-pressed={healer.open}
+            aria-label="Tab Healer"
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               healer.open
                 ? 'bg-amp-accent text-amp-bg'
@@ -362,6 +388,8 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           {/* Rocksmith toggle */}
           <button
             onClick={rocksmith.toggle}
+            aria-pressed={rocksmith.active}
+            aria-label="Mode Rocksmith"
             className={`px-2 py-1.5 rounded text-xs font-bold transition-colors ${
               rocksmith.active
                 ? 'bg-amp-success text-white animate-pulse'
@@ -372,9 +400,12 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             🎸
           </button>
 
-          {/* Bar counter */}
+          {/* Bar counter — tabular-nums so 9/100 → 10/100 doesn't shift the row */}
           {totalBars > 0 && (
-            <span className="text-xs text-amp-muted font-mono ml-1">
+            <span
+              className="text-xs text-amp-muted font-mono tabular-nums ml-1"
+              aria-label={`Mesure ${currentBar} sur ${totalBars}`}
+            >
               {currentBar}/{totalBars}
             </span>
           )}
@@ -383,6 +414,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           <div className="flex items-center gap-1 ml-auto">
             <button
               onClick={() => updateSpeed(Math.max(25, speed - 5))}
+              aria-label="Diminuer la vitesse"
               className="text-amp-muted hover:text-amp-text text-xs px-1"
             >
               −
@@ -393,15 +425,17 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
               max={200}
               value={speed}
               onChange={(e) => updateSpeed(Number(e.target.value))}
+              aria-label="Vitesse de lecture"
               className="w-24 accent-amp-accent"
             />
             <button
               onClick={() => updateSpeed(Math.min(200, speed + 5))}
+              aria-label="Augmenter la vitesse"
               className="text-amp-muted hover:text-amp-text text-xs px-1"
             >
               +
             </button>
-            <span className="font-mono text-amp-text text-xs w-10 text-right">
+            <span className="font-mono tabular-nums text-amp-text text-xs w-10 text-right">
               {speed}%
             </span>
           </div>
@@ -417,6 +451,7 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
                   setTimeout(() => setShareCopied(false), 2000);
                 });
               }}
+              aria-label="Copier le lien de partage"
               className="px-2 py-1.5 rounded text-xs font-bold bg-amp-panel-2 text-amp-muted hover:text-amp-text transition-colors border-l border-amp-border ml-1"
               title="Copier le lien de partage"
             >
@@ -428,15 +463,17 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           <div className="flex items-center gap-1 border-l border-amp-border pl-2">
             <button
               onClick={() => setZoom((z) => Math.max(0.5, z - 0.1))}
+              aria-label="Dézoomer"
               className="text-amp-muted hover:text-amp-text text-xs px-1"
             >
               🔍−
             </button>
-            <span className="text-xs text-amp-muted font-mono w-8 text-center">
+            <span className="text-xs text-amp-muted font-mono tabular-nums w-8 text-center">
               {Math.round(zoom * 100)}%
             </span>
             <button
               onClick={() => setZoom((z) => Math.min(2, z + 0.1))}
+              aria-label="Zoomer"
               className="text-amp-muted hover:text-amp-text text-xs px-1"
             >
               🔍+
@@ -444,31 +481,36 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           </div>
         </div>
 
-        {/* Row 2: Track selector (only if multiple tracks) */}
+        {/* Row 2: Track selector (only if multiple tracks). chip/chipOn use
+            text-sm so we override to text-xs to keep the toolbar dense. */}
         {tracks.length > 1 && (
-          <div className="flex gap-1 mt-2 overflow-x-auto pb-1">
+          <div
+            className="flex gap-1 mt-2 overflow-x-auto pb-1"
+            role="tablist"
+            aria-label="Pistes"
+          >
             {tracks.map((t) => (
-              <button
+              <Button
                 key={t.index}
+                variant={activeTrack === t.index ? 'chipOn' : 'chip'}
                 onClick={() => switchTrack(t.index)}
-                className={`px-3 py-1 rounded text-xs whitespace-nowrap transition-colors ${
-                  activeTrack === t.index
-                    ? 'bg-amp-accent text-amp-bg font-bold'
-                    : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
-                }`}
+                role="tab"
+                aria-selected={activeTrack === t.index}
+                className="text-xs whitespace-nowrap"
               >
                 {t.name}
-              </button>
+              </Button>
             ))}
           </div>
         )}
 
-        {/* Speed presets */}
-        <div className="flex gap-1 mt-1">
+        {/* Speed presets — even tighter than chip (px-2 py-0.5). Stay raw. */}
+        <div className="flex gap-1 mt-1" role="group" aria-label="Vitesses prédéfinies">
           {[25, 50, 75, 100, 125, 150].map((s) => (
             <button
               key={s}
               onClick={() => updateSpeed(s)}
+              aria-pressed={speed === s}
               className={`px-2 py-0.5 rounded text-xs transition-colors ${
                 speed === s
                   ? 'bg-amp-accent text-amp-bg font-bold'
@@ -508,19 +550,23 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
             </p>
           ) : (
             <>
-              <div className="flex flex-wrap gap-1 mb-3">
+              {/* Song picker — same chip/chipOn vocabulary as Library filters. */}
+              <div
+                className="flex flex-wrap gap-1 mb-3"
+                role="radiogroup"
+                aria-label="Chanson à charger"
+              >
                 {Array.from(stems.songs.keys()).map((title) => (
-                  <button
+                  <Button
                     key={title}
+                    variant={stems.active === title ? 'chipOn' : 'chip'}
                     onClick={() => stems.load(title)}
-                    className={`px-3 py-1 rounded text-xs transition-colors ${
-                      stems.active === title
-                        ? 'bg-amp-accent text-amp-bg font-bold'
-                        : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
-                    }`}
+                    role="radio"
+                    aria-checked={stems.active === title}
+                    className="text-xs"
                   >
                     {title} ({stems.songs.get(title)?.length})
-                  </button>
+                  </Button>
                 ))}
               </div>
 
@@ -579,22 +625,30 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           </div>
 
           <div className="flex items-center gap-2 flex-wrap">
-            <label className="inline-block">
-              <span className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-3 py-1.5 rounded text-xs cursor-pointer inline-block">
-                {healer.running ? '⏳ Analyse…' : '📂 Choisir un audio'}
-              </span>
-              <input
-                type="file"
-                accept="audio/*"
-                disabled={healer.running}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) healer.run(f);
-                  e.target.value = '';
-                }}
-                className="hidden"
-              />
-            </label>
+            {/* Button triggers the hidden file input — Library uses the same
+                pattern. We override Button's px-6 py-2 down to px-3 py-1.5
+                text-xs to fit the dense Healer panel. */}
+            <Button
+              variant="primary"
+              disabled={healer.running}
+              onClick={() => healerFileRef.current?.click()}
+              aria-label="Choisir un fichier audio à analyser"
+              className="px-3 py-1.5 text-xs"
+            >
+              {healer.running ? '⏳ Analyse…' : '📂 Choisir un audio'}
+            </Button>
+            <input
+              ref={healerFileRef}
+              type="file"
+              accept="audio/*"
+              disabled={healer.running}
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) healer.run(f);
+                e.target.value = '';
+              }}
+              className="hidden"
+            />
             {healer.status && (
               <span className="text-xs text-amp-muted" aria-live="polite">
                 {healer.status}
@@ -654,8 +708,10 @@ export function TabViewer({ source, onReady }: TabViewerProps) {
           </div>
         )}
         {error && (
-          <div className="absolute inset-0 flex items-center justify-center bg-amp-bg text-amp-error p-4 z-10">
-            {error}
+          <div className="absolute inset-0 flex items-center justify-center bg-amp-bg p-4 z-10">
+            <ErrorStrip role="alert" className="max-w-md text-center">
+              {error}
+            </ErrorStrip>
           </div>
         )}
         {/*

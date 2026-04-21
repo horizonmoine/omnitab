@@ -5,9 +5,10 @@
  * exist to eliminate the ~50 copies of `bg-amp-panel border border-amp-border`
  * and friends scattered across the 16 pages.
  *
- * Why these eight:
+ * Why these nine:
  *   - `Button`    — every CTA, destructive action, chip, start/stop pill
  *   - `Input`     — every text field
+ *   - `Select`    — native select with amp-panel chrome (Library, Settings…)
  *   - `Card`      — every panel/row container
  *   - `SectionLabel` — the UPPERCASE-tracked muted caption pattern
  *   - `PageHeader` — title + subtitle pair at the top of each page
@@ -18,7 +19,7 @@
  * Anything more exotic (chord diagrams, fretboards) stays inside its own page.
  */
 
-import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type PropsWithChildren, type ReactNode } from 'react';
+import { forwardRef, type ButtonHTMLAttributes, type HTMLAttributes, type InputHTMLAttributes, type PropsWithChildren, type ReactNode, type SelectHTMLAttributes } from 'react';
 
 // ─── Button ─────────────────────────────────────────────────────────
 export type ButtonVariant =
@@ -81,6 +82,31 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(function Input(
       className={`bg-amp-panel border border-amp-border rounded px-4 py-2 text-amp-text placeholder:text-amp-muted focus:outline-none focus:border-amp-accent ${className}`.trim()}
       {...rest}
     />
+  );
+});
+
+// ─── Select ─────────────────────────────────────────────────────────
+/**
+ * Native `<select>` wearing the amp-panel chrome.
+ *
+ * We intentionally keep the native element (as opposed to a fancy
+ * ARIA listbox) — it inherits keyboard, touch, mobile-picker and
+ * screen-reader behaviour for free.
+ */
+type SelectProps = SelectHTMLAttributes<HTMLSelectElement>;
+
+export const Select = forwardRef<HTMLSelectElement, SelectProps>(function Select(
+  { className = '', children, ...rest },
+  ref,
+) {
+  return (
+    <select
+      ref={ref}
+      className={`bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text focus:outline-none focus:border-amp-accent ${className}`.trim()}
+      {...rest}
+    >
+      {children}
+    </select>
   );
 });
 

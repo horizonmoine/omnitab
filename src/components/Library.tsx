@@ -21,7 +21,7 @@ import {
 } from '../lib/db';
 import { detectGpFormat } from '../lib/songsterr-api';
 import type { LibraryTab, TabKind } from '../lib/types';
-import { Button, Card, Input } from './primitives';
+import { Button, Card, Input, Select } from './primitives';
 
 interface LibraryProps {
   onTabSelected: (data: ArrayBuffer | string, title: string) => void;
@@ -207,17 +207,18 @@ export function Library({ onTabSelected }: LibraryProps) {
 
         <div className="ml-auto flex items-center gap-1">
           <span className="text-xs text-amp-muted">Tri:</span>
-          <select
+          <Select
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="bg-amp-panel border border-amp-border rounded px-2 py-1 text-amp-text text-xs focus:outline-none focus:border-amp-accent"
+            aria-label="Trier"
+            className="px-2 py-1 text-xs"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.key} value={o.key}>
                 {o.label}
               </option>
             ))}
-          </select>
+          </Select>
         </div>
       </div>
 

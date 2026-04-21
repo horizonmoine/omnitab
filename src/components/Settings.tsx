@@ -37,7 +37,7 @@ import {
   updateSettings,
   type AppSettings,
 } from '../lib/settings';
-import { Button, Card, Input, PageHeader } from './primitives';
+import { Button, Card, Input, PageHeader, Select } from './primitives';
 
 /**
  * Tiny hook that subscribes this component to settings changes. When any
@@ -152,19 +152,17 @@ export function Settings() {
         subtitle="Valeurs par défaut pour la page Transcrire."
       >
         <Field label="Accordage par défaut">
-          {/* Select stays raw — no Select primitive yet, and the native <select>
-              gives free keyboard/touch handling. */}
-          <select
+          <Select
             value={settings.defaultTuningId}
             onChange={(e) => update({ defaultTuningId: e.target.value })}
-            className="w-full max-w-md bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text focus:outline-none focus:border-amp-accent"
+            className="w-full max-w-md"
           >
             {Object.values(TUNINGS).map((t) => (
               <option key={t.id} value={t.id}>
                 {t.name}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
       </Section>
 

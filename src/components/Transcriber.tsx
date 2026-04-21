@@ -50,6 +50,7 @@ import {
   Input,
   PageHeader,
   SectionLabel,
+  Select,
 } from './primitives';
 
 type Mode = 'guitar' | 'vocal-chords';
@@ -432,31 +433,31 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         <div className="grid grid-cols-2 gap-3 mb-3">
           <label className="block">
             <span className="block text-xs text-amp-muted mb-1">Accordage</span>
-            <select
+            <Select
               value={tuning.id}
               onChange={(e) => setTuning(TUNINGS[e.target.value])}
-              className="w-full bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text text-sm focus:outline-none focus:border-amp-accent"
+              className="w-full text-sm"
             >
               {Object.values(TUNINGS).map((t) => (
                 <option key={t.id} value={t.id}>
                   {t.name}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
           <label className="block">
             <span className="block text-xs text-amp-muted mb-1">Capodastre</span>
-            <select
+            <Select
               value={capo}
               onChange={(e) => setCapo(Number(e.target.value))}
-              className="w-full bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text text-sm focus:outline-none focus:border-amp-accent"
+              className="w-full text-sm"
             >
               {Array.from({ length: 13 }, (_, i) => (
                 <option key={i} value={i}>
                   {i === 0 ? 'Aucun' : `Frette ${i}`}
                 </option>
               ))}
-            </select>
+            </Select>
           </label>
         </div>
 
