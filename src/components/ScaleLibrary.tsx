@@ -8,6 +8,7 @@
 
 import { useMemo, useState } from 'react';
 import { Scale, Note } from 'tonal';
+import { Button, Card, PageHeader } from './primitives';
 
 const ROOTS = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
@@ -102,17 +103,20 @@ export function ScaleLibrary() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Gammes</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Visualise les gammes sur le manche. Clique sur une position pour isoler un pattern.
-      </p>
+      <PageHeader
+        title="Gammes"
+        subtitle="Visualise les gammes sur le manche. Clique sur une position pour isoler un pattern."
+      />
 
-      {/* Root selector */}
-      <div className="flex gap-1 mb-4 flex-wrap">
+      {/* Root selector — square w-10 h-10 buttons, kept raw because the
+          Button primitive's chip variant would change shape to rectangular. */}
+      <div className="flex gap-1 mb-4 flex-wrap" role="radiogroup" aria-label="Fondamentale">
         {ROOTS.map((r) => (
           <button
             key={r}
             onClick={() => setRoot(r)}
+            role="radio"
+            aria-checked={root === r}
             className={`w-10 h-10 rounded font-bold text-sm transition-colors ${
               root === r
                 ? 'bg-amp-accent text-amp-bg'
@@ -127,45 +131,39 @@ export function ScaleLibrary() {
       {/* Scale selector */}
       <div className="flex gap-2 mb-4 flex-wrap">
         {SCALES.map((s) => (
-          <button
+          <Button
             key={s.id}
+            variant={scaleId === s.id ? 'chipOn' : 'chip'}
             onClick={() => setScaleId(s.id)}
-            className={`px-3 py-1.5 rounded text-sm transition-colors ${
-              scaleId === s.id
-                ? 'bg-amp-accent text-amp-bg font-bold'
-                : 'bg-amp-panel-2 text-amp-text hover:bg-amp-border'
-            }`}
+            aria-pressed={scaleId === s.id}
+            className="py-1.5"
           >
             {s.label}
-          </button>
+          </Button>
         ))}
       </div>
 
-      {/* Position selector */}
-      <div className="flex gap-2 mb-4 items-center">
+      {/* Position selector — smaller text-xs, so chip variant with override */}
+      <div className="flex gap-2 mb-4 items-center flex-wrap">
         <span className="text-xs text-amp-muted">Position:</span>
-        <button
+        <Button
+          variant={positionFilter === null ? 'chipOn' : 'chip'}
           onClick={() => setPositionFilter(null)}
-          className={`px-3 py-1 rounded text-xs transition-colors ${
-            positionFilter === null
-              ? 'bg-amp-accent text-amp-bg font-bold'
-              : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
-          }`}
+          aria-pressed={positionFilter === null}
+          className="text-xs"
         >
           Tout
-        </button>
+        </Button>
         {positions.map((p, i) => (
-          <button
+          <Button
             key={i}
+            variant={positionFilter === i ? 'chipOn' : 'chip'}
             onClick={() => setPositionFilter(i)}
-            className={`px-3 py-1 rounded text-xs transition-colors ${
-              positionFilter === i
-                ? 'bg-amp-accent text-amp-bg font-bold'
-                : 'bg-amp-panel-2 text-amp-muted hover:text-amp-text'
-            }`}
+            aria-pressed={positionFilter === i}
+            className="text-xs"
           >
             {p.label}
-          </button>
+          </Button>
         ))}
         <label className="flex items-center gap-1 ml-4 text-xs text-amp-muted cursor-pointer">
           <input
@@ -185,8 +183,9 @@ export function ScaleLibrary() {
         {scaleData.notes.join(' · ')}
       </div>
 
-      {/* SVG Fretboard */}
-      <div className="overflow-x-auto bg-amp-panel border border-amp-border rounded-lg p-4">
+      {/* SVG Fretboard — Card default rounded=0.25rem is overridden to
+          rounded-lg to match the visual weight of the diagram. */}
+      <Card className="overflow-x-auto rounded-lg">
         <svg width={svgW} height={svgH} viewBox={`0 0 ${svgW} ${svgH}`}>
           {/* Fret markers (dots) */}
           {[3, 5, 7, 9, 12, 15].map((f) => {
@@ -300,7 +299,7 @@ export function ScaleLibrary() {
               );
             })}
         </svg>
-      </div>
+      </Card>
 
       {/* Legend */}
       <div className="flex gap-4 mt-4 text-xs text-amp-muted">

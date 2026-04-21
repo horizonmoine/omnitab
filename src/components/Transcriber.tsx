@@ -43,6 +43,14 @@ import {
   subscribeSettings,
 } from '../lib/settings';
 import type { DetectedNote, Tuning, Transcription } from '../lib/types';
+import {
+  Button,
+  Card,
+  ErrorStrip,
+  Input,
+  PageHeader,
+  SectionLabel,
+} from './primitives';
 
 type Mode = 'guitar' | 'vocal-chords';
 
@@ -327,17 +335,16 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Transcrire</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Transforme n'importe quel audio en tablature. Tout tourne dans le
-        navigateur — le fichier ne quitte pas ton appareil.
-      </p>
+      <PageHeader
+        title="Transcrire"
+        subtitle="Transforme n'importe quel audio en tablature. Tout tourne dans le navigateur — le fichier ne quitte pas ton appareil."
+      />
 
-      {/* Étape 1 — Choix du mode */}
+      {/* Étape 1 — Choix du mode. Mode cards stay raw: the amber-bordered
+          selection state + per-mode text colour can't be expressed as a
+          single Button variant without bloating the primitive. */}
       <section className="mb-6">
-        <h3 className="text-sm text-amp-muted mb-2 uppercase tracking-wider">
-          1. Que veux-tu obtenir ?
-        </h3>
+        <SectionLabel className="mb-2 text-xs">1. Que veux-tu obtenir ?</SectionLabel>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-w-2xl">
           {MODES.map((m) => (
             <button
@@ -368,11 +375,10 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         </div>
       </section>
 
-      {/* Étape 2 — Fichier audio */}
+      {/* Étape 2 — Fichier audio. File input keeps its `file:` pseudo-element
+          styling (not expressible via the Input primitive). */}
       <section className="mb-6">
-        <h3 className="text-sm text-amp-muted mb-2 uppercase tracking-wider">
-          2. Fichier audio
-        </h3>
+        <SectionLabel className="mb-2 text-xs">2. Fichier audio</SectionLabel>
         <input
           type="file"
           accept="audio/*"
@@ -386,21 +392,22 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
             Ou coller une URL YouTube (max 10 min) :
           </div>
           <div className="flex gap-2">
-            <input
+            <Input
               type="url"
               value={ytUrl}
               onChange={(e) => setYtUrl(e.target.value)}
               placeholder="https://www.youtube.com/watch?v=…"
               disabled={ytFetching || !backend}
-              className="flex-1 bg-amp-panel border border-amp-border rounded px-3 py-2 text-amp-text text-sm font-mono focus:outline-none focus:border-amp-accent disabled:opacity-50"
+              aria-label="URL YouTube"
+              className="flex-1 px-3 py-2 text-sm font-mono disabled:opacity-50"
             />
-            <button
+            <Button
               onClick={importYoutube}
               disabled={!ytUrl.trim() || ytFetching || !backend}
-              className="bg-amp-accent hover:bg-amp-accent-hover disabled:bg-amp-muted disabled:cursor-not-allowed text-amp-bg font-bold px-4 py-2 rounded text-sm transition-colors whitespace-nowrap"
+              className="px-4 py-2 text-sm whitespace-nowrap"
             >
               {ytFetching ? '⏳…' : '📥 Importer'}
-            </button>
+            </Button>
           </div>
           {!backend && (
             <div className="text-xs text-amp-muted mt-1">
@@ -416,11 +423,11 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         )}
       </section>
 
-      {/* Étape 3 — Options */}
+      {/* Étape 3 — Options. Native <select>s stay raw (no primitive yet),
+          Demucs panel stays raw because its disabled border/opacity state
+          depends on `backend` and is specific to this page. */}
       <section className="mb-6 max-w-md">
-        <h3 className="text-sm text-amp-muted mb-2 uppercase tracking-wider">
-          3. Options
-        </h3>
+        <SectionLabel className="mb-2 text-xs">3. Options</SectionLabel>
 
         <div className="grid grid-cols-2 gap-3 mb-3">
           <label className="block">
@@ -497,15 +504,15 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
 
       {/* Étape 4 — Lancement */}
       <section className="mb-6">
-        <button
+        <Button
           onClick={run}
           disabled={!file || running}
-          className="bg-amp-accent hover:bg-amp-accent-hover disabled:bg-amp-muted disabled:cursor-not-allowed text-amp-bg font-bold px-6 py-3 rounded transition-colors"
+          className="px-6 py-3"
         >
           {running
             ? '⏳ Transcription en cours…'
             : `${activeMode.icon} Lancer la transcription`}
-        </button>
+        </Button>
 
         {(running || progress > 0) && (
           <div className="mt-4 max-w-md">
@@ -533,18 +540,15 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         )}
 
         {error && (
-          <div
-            className="mt-4 max-w-md p-3 bg-amp-error/20 border border-amp-error rounded text-amp-error text-sm"
-            role="alert"
-          >
+          <ErrorStrip className="mt-4 max-w-md" role="alert">
             {error}
-          </div>
+          </ErrorStrip>
         )}
       </section>
 
       {/* Résultat */}
       {resultTex && transcription && (
-        <section className="max-w-md p-4 bg-amp-panel border border-amp-border rounded mb-6">
+        <Card className="max-w-md mb-6">
           <h3 className="font-bold text-amp-success mb-2">
             ✅ Transcription prête
           </h3>
@@ -555,41 +559,40 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
             {capo > 0 && ` · capo ${capo}`}
           </p>
           <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={sendToViewer}
-              className="bg-amp-accent hover:bg-amp-accent-hover text-amp-bg font-bold px-4 py-2 rounded text-sm transition-colors"
-            >
+            <Button onClick={sendToViewer} className="px-4 py-2 text-sm">
               📖 Ouvrir dans le lecteur
-            </button>
-            <button
+            </Button>
+            <Button
+              variant="secondary"
               onClick={saveToLibrary}
-              className="bg-amp-panel-2 hover:bg-amp-border text-amp-text px-4 py-2 rounded text-sm transition-colors"
+              className="px-4 py-2"
             >
               💾 Sauvegarder dans la bibliothèque
-            </button>
+            </Button>
           </div>
-        </section>
+        </Card>
       )}
 
       {/* Stem separation (offline cache) */}
       {file && backend && !running && (
-        <section className="max-w-md p-4 bg-amp-panel border border-amp-border rounded">
+        <Card className="max-w-md">
           <h3 className="font-bold mb-2">🎛️ Séparer toutes les pistes</h3>
           <p className="text-xs text-amp-muted mb-3">
             Isole voix, batterie, basse et autres via Demucs. Les stems
             sont sauvegardés hors-ligne dans l'onglet Stems.
           </p>
-          <button
+          <Button
+            variant="secondary"
             onClick={separateAllStems}
             disabled={separating}
-            className="bg-amp-panel-2 hover:bg-amp-border disabled:bg-amp-muted text-amp-text font-bold px-4 py-2 rounded text-sm transition-colors"
+            className="font-bold px-4 py-2"
           >
             {separating ? '⏳ Séparation en cours…' : '🎛️ Séparer les 4 stems'}
-          </button>
+          </Button>
           {separateProgress && (
             <p className="mt-2 text-sm text-amp-muted">{separateProgress}</p>
           )}
-        </section>
+        </Card>
       )}
     </div>
   );

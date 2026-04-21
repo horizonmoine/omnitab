@@ -15,6 +15,7 @@ import {
   type SavedStem,
   type StemType,
 } from '../lib/db';
+import { Card, PageHeader } from './primitives';
 
 const STEM_LABELS: Record<StemType, { icon: string; label: string }> = {
   vocals: { icon: '🎤', label: 'Voix' },
@@ -58,12 +59,12 @@ export function StemPlayer() {
 
   return (
     <div className="h-full overflow-y-auto p-6">
-      <h2 className="text-2xl font-bold mb-2">Mes Stems (hors-ligne)</h2>
-      <p className="text-amp-muted text-sm mb-6">
-        Pistes séparées par Demucs — mute/solo pour pratiquer.
-      </p>
+      <PageHeader
+        title="Mes Stems (hors-ligne)"
+        subtitle="Pistes séparées par Demucs — mute/solo pour pratiquer."
+      />
 
-      <div className="space-y-6">
+      <div className="space-y-6" role="list">
         {[...grouped.entries()].map(([title, songStems]) => (
           <SongStemGroup
             key={title}
@@ -158,13 +159,24 @@ function SongStemGroup({ title, stems, onDeleteAll }: SongStemGroupProps) {
   };
 
   return (
-    <div className="bg-amp-panel border border-amp-border rounded-lg overflow-hidden">
-      {/* Header */}
+    // Card default p-4 is disabled with padding="" because the header and
+    // mixer body each own their own internal padding to keep the border-b
+    // strip edge-to-edge. rounded-lg overrides Card's default rounded.
+    <Card
+      role="listitem"
+      padding=""
+      className="rounded-lg overflow-hidden"
+    >
+      {/* Header — mixer sub-bar. Play/Stop stays raw: the primary/destructive
+          variants are `px-6 py-2` (too bulky) and pill/pillStop are `px-10
+          py-3 rounded-full` (way too bulky). The compact `px-4 py-1.5`
+          preserves the console-track density. */}
       <div className="flex items-center justify-between px-4 py-3 bg-amp-panel-2 border-b border-amp-border">
         <h3 className="font-bold truncate">{title}</h3>
         <div className="flex items-center gap-2">
           <button
             onClick={playing ? stopAll : playAll}
+            aria-label={playing ? 'Arrêter la lecture' : 'Lancer la lecture'}
             className={`px-4 py-1.5 rounded text-sm font-bold transition-colors ${
               playing
                 ? 'bg-amp-error hover:bg-red-600 text-white'
@@ -183,7 +195,8 @@ function SongStemGroup({ title, stems, onDeleteAll }: SongStemGroupProps) {
         </div>
       </div>
 
-      {/* Mixer channels */}
+      {/* Mixer channels — M/S toggles stay raw at px-2 py-0.5 (tighter than
+          any Button variant); volume <input type="range"> stays raw. */}
       <div className="p-4 space-y-3">
         {stems.map((stem) => {
           const { icon, label } = STEM_LABELS[stem.stemType] ?? {
@@ -266,6 +279,6 @@ function SongStemGroup({ title, stems, onDeleteAll }: SongStemGroupProps) {
           );
         })}
       </div>
-    </div>
+    </Card>
   );
 }

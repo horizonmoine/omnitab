@@ -189,14 +189,19 @@ export function Readout({
 }
 
 // ─── ErrorStrip ─────────────────────────────────────────────────────
-/** The `/20` tinted red panel — errors, warnings, "iRig not detected" etc. */
-export function ErrorStrip({
-  children,
-  className = '',
-}: PropsWithChildren<{ className?: string }>) {
+/**
+ * The `/20` tinted red panel — errors, warnings, "iRig not detected" etc.
+ *
+ * Forwards div attributes so callers can add `role="alert"` or
+ * `aria-live="assertive"` for transient error announcements.
+ */
+interface ErrorStripProps extends HTMLAttributes<HTMLDivElement> {}
+
+export function ErrorStrip({ children, className = '', ...rest }: ErrorStripProps) {
   return (
     <div
       className={`p-3 rounded text-sm bg-amp-error/20 border border-amp-error text-amp-error ${className}`.trim()}
+      {...rest}
     >
       {children}
     </div>
