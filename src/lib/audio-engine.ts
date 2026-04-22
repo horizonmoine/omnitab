@@ -1,13 +1,19 @@
 /**
  * Web Audio engine — shared AudioContext + helpers for:
  *   - Microphone / USB audio capture (Web Audio API)
- *   - Amp simulation chain (gain → waveshaper → 3-band EQ → convolver → master)
+ *   - Amp simulation chain (pedalboard → drive → 3-band EQ → master)
  *   - PCM/WAV export from AudioBuffer (for transcription pipeline)
  *
  * A single AudioContext is reused across components — browsers throttle pages
  * that leak many contexts and Safari limits you to 4 live contexts before
  * silently failing.
+ *
+ * Signal chain shape:
+ *   source → [pedal1] → [pedal2] → ... → drive → bass → mid → treble → master
+ * Inactive pedals are simply omitted from the wiring, not bypassed live.
  */
+
+import { buildPedalChain, type PedalChain, type PedalSlot } from './pedals';
 
 let sharedCtx: AudioContext | null = null;
 
@@ -68,6 +74,8 @@ export interface AmpSimChain {
   mid: BiquadFilterNode;
   treble: BiquadFilterNode;
   master: GainNode;
+  /** Live pedal sub-graphs that were spliced in front of the amp. */
+  pedals: PedalChain[];
   /** The final node — connect this to `ctx.destination` to monitor. */
   output: AudioNode;
   /** Dispose the chain (disconnect + null out). */
@@ -92,12 +100,32 @@ export interface AmpSimParams {
 /**
  * Build an amp sim chain connected to the given source node. Caller is
  * responsible for calling `.dispose()` when unmounted.
+ *
+ * If `pedalSlots` is provided, active pedals are wired in front of the
+ * amp section in the canonical signal-chain order (see PEDAL_ORDER in
+ * pedals.ts). Bypassed slots contribute nothing to the wiring — no
+ * "thru" gain hack needed since rebuilds are cheap.
  */
 export function createAmpSim(
   ctx: AudioContext,
   source: AudioNode,
   params: AmpSimParams,
+  pedalSlots: PedalSlot[] = [],
 ): AmpSimChain {
+  // 1. Build active pedal chains in canonical order. The caller's slots
+  //    array is already sorted (Pedalboard renders in PEDAL_ORDER), so
+  //    we just iterate and skip inactive ones.
+  const pedals: PedalChain[] = [];
+  let upstream: AudioNode = source;
+  for (const slot of pedalSlots) {
+    const chain = buildPedalChain(ctx, slot);
+    if (!chain) continue;
+    upstream.connect(chain.input);
+    upstream = chain.output;
+    pedals.push(chain);
+  }
+
+  // 2. Build the amp section (unchanged from the pre-pedalboard version).
   const input = ctx.createGain();
   input.gain.value = 1 + params.drive * 0.4; // pre-gain before the shaper
 
@@ -124,8 +152,8 @@ export function createAmpSim(
   const master = ctx.createGain();
   master.gain.value = params.master;
 
-  // Wire the chain.
-  source.connect(input);
+  // 3. Wire pedalboard output → amp input → rest of chain.
+  upstream.connect(input);
   input.connect(drive);
   drive.connect(bass);
   bass.connect(mid);
@@ -134,7 +162,11 @@ export function createAmpSim(
 
   const dispose = () => {
     try {
-      source.disconnect(input);
+      // Disconnect every node we own. Pedals dispose their own internals.
+      for (const p of pedals) p.dispose();
+      // Source can have been wired to either the first pedal's input OR
+      // directly to `input` if no pedals were active.
+      try { source.disconnect(); } catch { /* ignore */ }
       input.disconnect();
       drive.disconnect();
       bass.disconnect();
@@ -153,6 +185,7 @@ export function createAmpSim(
     mid,
     treble,
     master,
+    pedals,
     output: master,
     dispose,
   };

@@ -187,6 +187,39 @@ export function Settings() {
         </Field>
       </Section>
 
+      {/* ───── Gemini API ───── */}
+      <Section
+        title="Auto-config IA (Gemini)"
+        subtitle="Clé Google Gemini pour l'auto-config ampli + pédales sur n'importe quelle chanson hors presets."
+      >
+        <Field label="Clé API Gemini">
+          {/* Use type="password" so the key isn't visible by default —
+              treat it like any other secret even though it's user-supplied. */}
+          <Input
+            type="password"
+            placeholder="AIza..."
+            value={settings.geminiApiKey}
+            onChange={(e) => update({ geminiApiKey: e.target.value })}
+            autoComplete="off"
+            spellCheck={false}
+            className="w-full max-w-md font-mono text-sm"
+          />
+          <div className="text-xs text-amp-muted mt-1">
+            Récupère une clé GRATUITE sur{' '}
+            <a
+              href="https://aistudio.google.com/app/apikey"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-amp-accent hover:underline"
+            >
+              aistudio.google.com/app/apikey
+            </a>{' '}
+            (15 requêtes/min, 1500/jour). Stockée localement, jamais envoyée
+            ailleurs que chez Google.
+          </div>
+        </Field>
+      </Section>
+
       {/* ───── Viterbi ───── */}
       <Section
         title="Poids Viterbi"

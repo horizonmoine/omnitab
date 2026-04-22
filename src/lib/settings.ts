@@ -23,6 +23,13 @@ export interface AppSettings {
   demucsUrl: string;
   /** Viterbi cost weights for tab placement. */
   costWeights: FretCostWeights;
+  /**
+   * Google Gemini API key (free tier). Used by the AmpSim auto-config
+   * feature when a song isn't in our hardcoded preset list. Empty = the
+   * UI shows a "configure Gemini" call-to-action instead of failing.
+   * Get one at: https://aistudio.google.com/app/apikey
+   */
+  geminiApiKey: string;
 }
 
 export const DEFAULT_SETTINGS: AppSettings = {
@@ -30,6 +37,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   defaultTuningId: 'standard',
   demucsUrl: '',
   costWeights: { ...DEFAULT_COST_WEIGHTS },
+  geminiApiKey: '',
 };
 
 // In-memory cache. Populated by loadSettings(). Safe to read at any time.
@@ -51,6 +59,10 @@ export async function loadSettings(): Promise<AppSettings> {
     costWeights: await getSetting(
       'costWeights',
       DEFAULT_SETTINGS.costWeights,
+    ),
+    geminiApiKey: await getSetting(
+      'geminiApiKey',
+      DEFAULT_SETTINGS.geminiApiKey,
     ),
   };
   cache = loaded;

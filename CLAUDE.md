@@ -38,13 +38,16 @@ Built for Samsung A52s + iRig Micro Amp. Works 100% offline after first load.
 src/
 ├── App.tsx              # Main shell — lazy-loaded routing (React.lazy + Suspense)
 ├── main.tsx             # Entry: PWA registration + basic-pitch model prefetch
-├── components/          # 17 page components + Toast system
+├── components/          # 18 page components + reusable UI (Toast, Combobox, Pedalboard, AmpAutoConfig, primitives)
 │   ├── TabViewer.tsx    # AlphaTab Pro (tracks, loop, count-in, zoom, speed, share)
 │   ├── TabSearch.tsx    # Songsterr search → open on Songsterr
 │   ├── Library.tsx      # IndexedDB library (search, sort, drag&drop, favorites, URL import)
 │   ├── Tuner.tsx        # Real-time pitch detection
 │   ├── Metronome.tsx    # Web Audio look-ahead scheduler
-│   ├── AmpSim.tsx       # Drive → 3-band EQ → master chain
+│   ├── AmpSim.tsx       # Pedalboard (8 stomps) → drive → 3-band EQ → master + auto-config IA
+│   ├── Pedalboard.tsx   # Visual stompboxes (Comp/Wah/Fuzz/OD/Dist/Chorus/Delay/Reverb)
+│   ├── AmpAutoConfig.tsx # "I have THIS guitar + amp, configure for THIS song" (presets + Gemini)
+│   ├── Combobox.tsx     # Reusable accessible autocomplete (used by AmpAutoConfig fields)
 │   ├── Recorder.tsx     # MediaRecorder + waveform + speed control
 │   ├── Transcriber.tsx  # basic-pitch → Viterbi → alphaTex pipeline + YT "Tout faire" pipeline
 │   ├── TexEditor.tsx    # AlphaTex live editor with split-pane preview
@@ -55,7 +58,7 @@ src/
 │   ├── EarTraining.tsx  # Interval identification game with SRS-like scoring
 │   ├── BackingTrack.tsx # Looping chord progressions (8 presets + custom)
 │   ├── PracticeJournal.tsx # Practice journal with SRS (SuperMemo-2)
-│   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights, MIDI, voice
+│   ├── Settings.tsx     # A4, tuning, Demucs URL, Viterbi weights, MIDI, voice, Gemini key
 │   ├── Layout.tsx       # Sidebar + mobile bottom bar + Page type
 │   ├── Toast.tsx        # Global toast notification system
 │   ├── HealerOverlay.tsx # Coloured dots over AlphaTab glyphs (click-to-seek)
@@ -69,8 +72,13 @@ src/
 ├── lib/                 # Core logic (no React)
 │   ├── types.ts         # DetectedNote, TabNote, Transcription, SongsterrHit...
 │   ├── db.ts            # Dexie schema v3 + CRUD + SRS (SuperMemo-2) helpers
-│   ├── settings.ts      # Persistent settings with pub/sub
-│   ├── audio-engine.ts  # Shared AudioContext + AmpSim chain + WAV encoding
+│   ├── settings.ts      # Persistent settings with pub/sub (incl. geminiApiKey)
+│   ├── audio-engine.ts  # Shared AudioContext + pedals → AmpSim chain + WAV encoding
+│   ├── pedals.ts        # 8 Web Audio pedal factories (Comp/Wah/Fuzz/OD/Dist/Chorus/Delay/Reverb)
+│   ├── guitars-amps.ts  # Curated guitar/amp catalog (~30 each) for autocomplete
+│   ├── song-presets.ts  # Hardcoded settings for ~28 famous songs (offline, instant)
+│   ├── gemini-client.ts # Google Gemini REST client (user-supplied free-tier key)
+│   ├── auto-config.ts   # Hybrid lookup: preset first, Gemini fallback — returns amp+pedals
 │   ├── basic-pitch.ts   # Persistent worker facade with idle timeout
 │   ├── midi-to-tab.ts   # Viterbi algorithm for fret placement
 │   ├── midi-controller.ts # Web MIDI API — pedal/controller → app actions
@@ -114,6 +122,8 @@ hf-space/
 - **YouTube "Tout faire" pipeline:** One-click chain YT URL → Demucs 4 stems (saved) → basic-pitch on the cleanest stem → tab auto-saved (Transcribe page)
 - **Import from URL:** Paste any .gp/.xml/.tex URL in Library → /api/fetch-tab proxies it with HTTPS-only + extension whitelist + 10 MB cap
 - **AlphaTex live editor:** Textarea + debounced AlphaTab preview + starter templates (Tex Editor page)
+- **Virtual pedalboard (8 stomps):** Comp → Wah → Fuzz → OD → Dist → Chorus → Delay → Reverb, click-to-toggle, live params, knob mods rebuild on toggle only (Amp page)
+- **Auto-config IA:** Type guitar + amp + song → instant preset (offline) or Gemini (~2s) returns full amp + pedalboard recipe with PREVIEW/Apply/Dismiss flow (Amp page)
 
 ## Conventions
 
@@ -174,4 +184,7 @@ Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
 - ✅ **Demucs + AlphaTab sync:** Stems play in lock-step with the tab cursor, mute-per-stem, speed mirrored
 - ✅ **Healer overlay:** Coloured dots pinned to beat glyphs via `api.boundsLookup.findBeat`, click-to-seek
 - ✅ **Setlist mode:** Chain multiple tabs from the library with Prev/Next navigation (Setlists page + viewer bar)
+- ✅ **Virtual pedalboard:** 8 stompbox-style pedals (Comp/Wah/Fuzz/OD/Dist/Chorus/Delay/Reverb) in canonical signal-chain order
+- ✅ **AI tone-matching (auto-config):** Hybrid — local presets for ~28 famous songs + Google Gemini fallback (user supplies free-tier key)
 - **Auto-tone v2:** Live mic comparison vs reference, not just static FFT
+- **Pedal sharing:** Encode amp + pedalboard state into URL `?tone=<base64>` so users can share tones
