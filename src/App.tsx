@@ -1,12 +1,14 @@
 /**
  * Coque principale de l'app.
  *
- * Connecte Layout (sidebar / bottom-bar) aux 15 pages et gère les passages
- * de main inter-pages via les slots `pendingTab` et `pendingAudio`.
+ * Connecte Layout (sidebar / bottom-bar) aux 18 pages et gère les passages
+ * de main inter-pages via les slots `pendingTab`, `pendingAudio`, et le
+ * setlistContext (qui pilote la barre Prev/Next du viewer).
  *
- * Lazy-loaded pages: TabViewer, Transcriber, ScaleLibrary, EarTraining,
- * BackingTrack, ChordLibrary, SpeedTrainer, StemPlayer, AmpSim — these are
- * code-split into separate chunks to keep the initial bundle small.
+ * Lazy-loaded pages: TabViewer, Transcriber, TexEditor, ScaleLibrary,
+ * EarTraining, BackingTrack, ChordLibrary, SpeedTrainer, StemPlayer,
+ * AmpSim, PracticeJournal, Setlists — code-split into separate chunks to
+ * keep the initial bundle small.
  */
 
 import { lazy, Suspense, useEffect, useState } from 'react';

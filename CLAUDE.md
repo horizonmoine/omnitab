@@ -103,7 +103,7 @@ hf-space/
 
 ## Key Features
 
-- **17 pages:** Search, Library, Viewer, Tuner, Metronome, Amp, Record, Transcribe, Tex Editor, Stems, Chords, Speed Trainer, Scales, Ear Training, Backing Track, Practice Journal, Settings
+- **18 pages:** Search, Library, Viewer, Tuner, Metronome, Amp, Record, Transcribe, Tex Editor, Stems, Chords, Speed Trainer, Scales, Ear Training, Backing Track, Practice Journal, Setlists, Settings
 - **Lazy loading:** 10 heavy pages are code-split via React.lazy (TabViewer, Transcriber, TexEditor, AmpSim, StemPlayer, ChordLibrary, SpeedTrainer, ScaleLibrary, EarTraining, BackingTrack)
 - **Tab sharing:** `?tab=<base64>` URL param encodes alphaTex for link sharing
 - **Toast notifications:** `toast.success()` / `toast.error()` / `toast.info()` — global, no context needed
@@ -173,5 +173,5 @@ Our Edge proxy at `/api/songsterr?path=...` handles CORS for prod.
 - ✅ **Tab Healer:** Compare basic-pitch transcription vs human tab to flag potential errors
 - ✅ **Demucs + AlphaTab sync:** Stems play in lock-step with the tab cursor, mute-per-stem, speed mirrored
 - ✅ **Healer overlay:** Coloured dots pinned to beat glyphs via `api.boundsLookup.findBeat`, click-to-seek
+- ✅ **Setlist mode:** Chain multiple tabs from the library with Prev/Next navigation (Setlists page + viewer bar)
 - **Auto-tone v2:** Live mic comparison vs reference, not just static FFT
-- **Setlist mode:** Chain multiple tabs from the library with auto-progression

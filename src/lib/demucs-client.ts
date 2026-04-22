@@ -1,12 +1,19 @@
 /**
- * Client minimal pour le backend Demucs local (FastAPI).
+ * Client minimal pour le backend Demucs (FastAPI).
  *
- * Le backend tourne sur ton PC — voir backend/server.py. La PWA l'atteint
- * via l'URL `VITE_DEMUCS_API` ou, par défaut, `http://localhost:8000`.
+ * Backend par défaut :
+ *   - dev   : http://localhost:8000 (`backend/server.py` lancé en local)
+ *   - prod  : https://horizonmoine30-omnitab-demucs.hf.space (HF Space)
+ *
+ * Override possible à deux niveaux :
+ *   - build-time : VITE_DEMUCS_API
+ *   - runtime    : Settings → Backend Demucs (écrit dans
+ *                  globalThis.__OMNITAB_DEMUCS_URL__)
  *
  * Toutes les méthodes sont conçues pour échouer proprement : si le backend
- * n'est pas joignable, `isBackendAvailable()` renvoie `false` et l'UI peut
- * désactiver les options qui en dépendent.
+ * n'est pas joignable, `isBackendAvailable()` renvoie `null` et l'UI peut
+ * désactiver les options qui en dépendent. Pour les Spaces HF gratuits qui
+ * dorment après 48h, utiliser `wakeBackend()` qui poll jusqu'à 90s.
  */
 
 // Compile-time fallback. In dev we default to the local FastAPI server so

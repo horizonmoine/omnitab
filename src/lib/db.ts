@@ -1,11 +1,13 @@
 /**
  * IndexedDB wrapper (Dexie) for offline storage.
  *
- * Stores:
+ * Stores (schema v4):
  *   - library: tabs (GP files, MusicXML, alphaTex) with metadata
  *   - settings: user preferences (A4 ref, default tuning, cost weights)
  *   - recordings: user recordings (WAV blobs) before transcription
  *   - stems: Demucs-separated audio stems cached for offline playback
+ *   - practice: practice journal entries with SuperMemo-2 SRS metadata
+ *   - setlists: ordered playlists of library tab IDs (gigs, lessons)
  */
 
 import Dexie, { type EntityTable } from 'dexie';

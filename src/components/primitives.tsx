@@ -3,7 +3,7 @@
  *
  * These match the design-system spec in `omnitab-design-system/` 1:1 and
  * exist to eliminate the ~50 copies of `bg-amp-panel border border-amp-border`
- * and friends scattered across the 16 pages.
+ * and friends scattered across the 18 pages.
  *
  * Why these nine:
  *   - `Button`    — every CTA, destructive action, chip, start/stop pill
