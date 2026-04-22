@@ -8,11 +8,17 @@
  */
 
 import { useState } from 'react';
-import { searchSongsterr } from '../lib/songsterr-api';
+import { searchSongsterr, detectGpFormat } from '../lib/songsterr-api';
 import type { SongsterrHit } from '../lib/types';
 import { Button, Card, ErrorStrip, Input, PageHeader } from './primitives';
+import { addTabToLibrary } from '../lib/db';
+import { toast } from './Toast';
 
-export function TabSearch() {
+interface TabSearchProps {
+  onTabSelected?: (data: ArrayBuffer | string, title: string) => void;
+}
+
+export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -20,6 +26,7 @@ export function TabSearch() {
   // Only show the "no results" hint AFTER the user has actually submitted a
   // search. Otherwise the page would permanently display it on first load.
   const [hasSearched, setHasSearched] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -38,17 +45,55 @@ export function TabSearch() {
     }
   };
 
-  /** Open the Songsterr interactive player in a new tab. */
-  const openOnSongsterr = (hit: SongsterrHit) => {
-    const slug = `${hit.artist.name}-${hit.title}`
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/(^-|-$)/g, '');
-    window.open(
-      `https://www.songsterr.com/a/wsa/${slug}-tab-s${hit.id}`,
-      '_blank',
-      'noopener',
-    );
+  /** Télécharger le fichier via le scraper et le proxy, puis l'ouvrir. */
+  const downloadAndOpenTab = async (hit: SongsterrHit) => {
+    try {
+      setDownloadingId(hit.id);
+      setError(null);
+
+      // 1. Scrape the URL
+      const scrapeRes = await fetch(`/api/scrape-songsterr?id=${hit.id}`);
+      if (!scrapeRes.ok) {
+        throw new Error('Impossible de trouver le fichier sur Songsterr.');
+      }
+      const { url } = await scrapeRes.json();
+
+      // 2. Download through proxy
+      const downloadRes = await fetch(`/api/fetch-tab?url=${encodeURIComponent(url)}`);
+      if (!downloadRes.ok) {
+        throw new Error('Erreur lors du téléchargement du fichier.');
+      }
+
+      const buf = await downloadRes.arrayBuffer();
+      const format = detectGpFormat(buf);
+
+      // 3. Save to library — match the LibraryTab schema (kind/format/favorite/tags
+      // are required). sourceUrl points back to the Songsterr player so the user
+      // can re-find the original revisions list.
+      await addTabToLibrary({
+        title: hit.title,
+        artist: hit.artist.name,
+        kind: 'original',
+        format: format === 'unknown' ? 'gp' : format,
+        data: buf,
+        favorite: false,
+        tags: ['imported', 'songsterr'],
+        sourceUrl: `https://www.songsterr.com/a/wsa/x-tab-s${hit.id}`,
+      });
+
+      toast.success('Tablature téléchargée avec succès !');
+
+      // 4. Open in viewer
+      if (onTabSelected) {
+        onTabSelected(buf, `${hit.artist.name} - ${hit.title}`);
+      }
+
+    } catch (err) {
+      console.error(err);
+      setError((err as Error).message);
+    } finally {
+      setDownloadingId(null);
+    }
   };
 
   return (
@@ -103,10 +148,11 @@ export function TabSearch() {
             </div>
             <Button
               variant="secondary"
-              onClick={() => openOnSongsterr(hit)}
+              onClick={() => downloadAndOpenTab(hit)}
               className="ml-3"
+              disabled={downloadingId === hit.id}
             >
-              Ouvrir
+              {downloadingId === hit.id ? 'Téléchargement...' : 'Télécharger & Ouvrir'}
             </Button>
           </Card>
         ))}

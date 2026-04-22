@@ -41,3 +41,9 @@ next-env.d.ts
 
 # Claude Code per-user settings — never commit these.
 .claude/
+
+# Local scratch / debug artifacts (one-off scripts, captured fixtures).
+extract.cjs
+test_api.json
+songsterr.html
+songsterr_data.json

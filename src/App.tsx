@@ -179,7 +179,7 @@ export function App() {
   const renderPage = () => {
     switch (page) {
       case 'search':
-        return <TabSearch />;
+        return <TabSearch onTabSelected={openInViewer} />;
       case 'library':
         return <Library onTabSelected={openInViewer} />;
       case 'viewer':
