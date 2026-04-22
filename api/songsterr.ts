@@ -1,20 +1,24 @@
 /**
- * Vercel Function (Fluid Compute) — Songsterr CORS proxy.
+ * Vercel Edge Function — Songsterr CORS proxy.
  *
  * Songsterr's API doesn't set Access-Control-Allow-Origin, so browsers
  * block direct fetches from our Vercel domain. This function proxies
  * requests to songsterr.com and adds the necessary CORS headers.
  *
- * Runs on Fluid Compute by default (Vercel 2026): full Node.js runtime,
- * 300s default timeout, instance reuse for cold-start mitigation. We use
- * only Web-standard APIs here (Request/Response/fetch) so this would also
- * work on the Edge runtime — Fluid Compute is just the modern default.
+ * Stays on Edge runtime: the handler uses the Web Fetch API signature
+ * `(request: Request) => Response`, which Edge runs natively. A previous
+ * attempt to drop the `runtime: 'edge'` config (to inherit the Fluid
+ * Compute default) crashed in prod with FUNCTION_INVOCATION_FAILED — the
+ * Node.js runtime expects `(req, res)` from `@vercel/node`. Migrating to
+ * Fluid is queued as a follow-up that rewrites all three /api handlers.
  *
  * Usage from the frontend:
  *   fetch('/api/songsterr?path=/songs.json?pattern=metallica')
  *
  * Deployed automatically by Vercel when it detects the /api directory.
  */
+
+export const config = { runtime: 'edge' };
 
 const SONGSTERR_BASE = 'https://www.songsterr.com/api';
 const ALLOWED_PATHS = ['/songs', '/song/', '/meta/'];

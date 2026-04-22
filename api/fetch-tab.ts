@@ -1,5 +1,5 @@
 /**
- * Vercel Function (Fluid Compute) — arbitrary .gp / .xml / .tex file CORS proxy.
+ * Vercel Edge Function — arbitrary .gp / .xml / .tex file CORS proxy.
  *
  * Songsterr killed its public .gp download endpoint in 2024, but plenty
  * of smaller sites (mysongbook.com, azpro.de, tabs.ultimate-guitar.com
@@ -9,10 +9,12 @@
  * This proxy fetches the URL, validates it's a reasonable tab file, and
  * streams the bytes back with CORS headers.
  *
- * Why Fluid Compute (not Edge): Edge has a 4 MB response cap, but our
- * MAX_SIZE_BYTES is 10 MB. Fluid Compute has no such cap and gives us a
- * 300s default timeout (vs Edge's 25s) — both nice-to-haves for proxying
- * larger tab files from slow servers.
+ * Runtime: Edge. The handler is `(request: Request) => Response` (Web
+ * Fetch API). A first attempt to switch to Fluid Compute (by removing
+ * `runtime: 'edge'`) blew up in prod with FUNCTION_INVOCATION_FAILED — the
+ * Node.js runtime needs the `(req, res)` shape from `@vercel/node`. The
+ * proper Fluid migration (rewrite handler + bump tab-size cap to take
+ * advantage of the missing 4 MB response limit) is queued as a follow-up.
  *
  * Usage from the frontend:
  *   fetch('/api/fetch-tab?url=' + encodeURIComponent('https://…/song.gp5'))
@@ -28,6 +30,8 @@
  *     already blocks private IPs at the network layer, but the hostname
  *     check catches obvious attempts early with a cleaner error.
  */
+
+export const config = { runtime: 'edge' };
 
 const MAX_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB — plenty for any real tab.
 const TIMEOUT_MS = 15000;

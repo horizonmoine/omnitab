@@ -1,9 +1,15 @@
 /**
- * Vercel Function (Fluid Compute) — health & status endpoint.
+ * Vercel Edge Function — health & status endpoint.
  *
- * Cheap probe by default: just confirms the Vercel Function is alive and
- * reports app metadata. Useful for uptime monitors (UptimeRobot, BetterStack)
- * that hit it every 1–5 minutes — we don't want those probes to wake the
+ * Runs on Edge runtime: Web Fetch API handler signature, fast cold starts,
+ * tiny payloads. We tried Fluid Compute (Node.js) initially but it requires
+ * a different handler shape `(req, res)`; the migration is queued as a
+ * separate PR. This file stays on Edge alongside `songsterr.ts` and
+ * `fetch-tab.ts` for now.
+ *
+ * Cheap probe by default: just confirms the Function is alive and reports
+ * app metadata. Useful for uptime monitors (UptimeRobot, BetterStack) that
+ * hit it every 1–5 minutes — we don't want those probes to wake the
  * sleeping HF Space backend on every check.
  *
  * Pass `?probe=demucs` to additionally test the HF Space (3s timeout, won't
@@ -28,6 +34,10 @@
  *     }
  *   }
  */
+
+// Edge runtime: Web Fetch API handler signature (request: Request) => Response.
+// Switching to Fluid Compute requires a different shape — done in a follow-up.
+export const config = { runtime: 'edge' };
 
 const VERSION = '0.1.0';
 const SERVICE = 'omnitab';
