@@ -48,6 +48,14 @@ interface PendingAudio {
   label: string;
 }
 
+/** Metadata d'une chanson Songsterr qu'on a choisie de transcrire plutôt
+ *  que télécharger. Pré-remplit le label du Transcriber et permet de lancer
+ *  une recherche YouTube ciblée depuis la page Transcribe. */
+interface PendingSearch {
+  title: string;
+  artist: string;
+}
+
 /**
  * Active setlist context — `null` when the viewer is showing a tab opened
  * directly from the library/transcriber, populated when the user is
@@ -74,6 +82,9 @@ export function App() {
   const [page, setPage] = useState<Page>('search');
   const [pendingTab, setPendingTab] = useState<PendingTab | null>(null);
   const [pendingAudio, setPendingAudio] = useState<PendingAudio | null>(null);
+  const [pendingSearch, setPendingSearch] = useState<PendingSearch | null>(
+    null,
+  );
   const [setlistContext, setSetlistContext] = useState<SetlistContext | null>(
     null,
   );
@@ -124,6 +135,20 @@ export function App() {
 
   const sendToTranscriber = (blob: Blob, label: string) => {
     setPendingAudio({ blob, label });
+    // A real audio blob wins over a stale search hint from the search page.
+    setPendingSearch(null);
+    setPage('transcribe');
+  };
+
+  /**
+   * Called from TabSearch when the user picks "Transcrire" on a Songsterr
+   * result (fallback path when the .gp download isn't available). We don't
+   * carry an audio blob — the Transcriber will prompt the user for a
+   * YouTube URL and run the full pipeline.
+   */
+  const sendSearchToTranscriber = (title: string, artist: string) => {
+    setPendingAudio(null);
+    setPendingSearch({ title, artist });
     setPage('transcribe');
   };
 
@@ -179,7 +204,12 @@ export function App() {
   const renderPage = () => {
     switch (page) {
       case 'search':
-        return <TabSearch onTabSelected={openInViewer} />;
+        return (
+          <TabSearch
+            onTabSelected={openInViewer}
+            onTranscribeRequested={sendSearchToTranscriber}
+          />
+        );
       case 'library':
         return <Library onTabSelected={openInViewer} />;
       case 'viewer':
@@ -204,6 +234,7 @@ export function App() {
         return (
           <Transcriber
             initialAudio={pendingAudio ?? undefined}
+            initialSearch={pendingSearch ?? undefined}
             onTabReady={(tex, title) => openInViewer(tex, title)}
           />
         );

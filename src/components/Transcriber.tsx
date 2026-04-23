@@ -59,6 +59,10 @@ type Mode = 'guitar' | 'vocal-chords';
 interface TranscriberProps {
   /** Blob préchargé (depuis le Recorder par exemple). */
   initialAudio?: { blob: Blob; label: string };
+  /** Metadata pré-remplie lorsqu'on arrive ici depuis un résultat Songsterr
+   *  qu'on n'a pas pu télécharger (fallback Transcrire). On pré-remplit le
+   *  `label` et on propose une recherche YouTube ciblée. */
+  initialSearch?: { title: string; artist: string };
   onTabReady: (alphaTex: string, title: string) => void;
 }
 
@@ -82,12 +86,23 @@ const MODES: {
   },
 ];
 
-export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
-  // Entrée
+export function Transcriber({
+  initialAudio,
+  initialSearch,
+  onTabReady,
+}: TranscriberProps) {
+  // Entrée. `label` is seeded from `initialAudio` first (explicit blob),
+  // then `initialSearch` (outbound from TabSearch). If both are set, the
+  // audio wins because the user has already provided real content.
   const [file, setFile] = useState<File | Blob | null>(
     initialAudio?.blob ?? null,
   );
-  const [label, setLabel] = useState(initialAudio?.label ?? '');
+  const [label, setLabel] = useState(
+    initialAudio?.label
+      ?? (initialSearch
+        ? `${initialSearch.artist} - ${initialSearch.title}`
+        : ''),
+  );
 
   // Configuration — seed tuning from persisted user settings if any.
   const [mode, setMode] = useState<Mode>('guitar');
@@ -204,6 +219,27 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
       setError(null);
     }
   }, [initialAudio]);
+
+  // Propagation d'une recherche Songsterr vers ce panneau — on pré-remplit
+  // uniquement le libellé (pas de blob à ce stade). Ne clobbe pas un blob
+  // déjà chargé par l'utilisateur.
+  useEffect(() => {
+    if (initialSearch && !initialAudio) {
+      setLabel(`${initialSearch.artist} - ${initialSearch.title}`);
+    }
+  }, [initialSearch, initialAudio]);
+
+  /** Recherche YouTube ciblée — ouvre la page des résultats dans un nouvel
+   *  onglet pour que l'utilisateur copie une URL de vidéo. `+ audio` biaise
+   *  les résultats vers une version "clean" du morceau (moins de live/cover). */
+  const openYoutubeSearchFor = (title: string, artist: string) => {
+    const q = encodeURIComponent(`${artist} ${title} audio`);
+    window.open(
+      `https://www.youtube.com/results?search_query=${q}`,
+      '_blank',
+      'noopener,noreferrer',
+    );
+  };
 
   const handleFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -538,6 +574,32 @@ export function Transcriber({ initialAudio, onTabReady }: TranscriberProps) {
         title="Transcrire"
         subtitle="Transforme n'importe quel audio en tablature. Tout tourne dans le navigateur — le fichier ne quitte pas ton appareil."
       />
+
+      {/* Fallback banner — user arrived here from a Songsterr result we
+          couldn't download. We pre-filled the label and we hand them a
+          one-click YouTube search so they can grab a URL quickly. */}
+      {initialSearch && !initialAudio && !file && (
+        <Card className="mb-6 max-w-2xl border-amp-accent/40">
+          <h3 className="font-bold mb-1">
+            🔁 Transcrire « {initialSearch.artist} — {initialSearch.title} »
+          </h3>
+          <p className="text-xs text-amp-muted mb-3">
+            Songsterr ne laisse plus télécharger le fichier Guitar Pro pour
+            cette chanson. Ouvre YouTube ci-dessous, copie l'URL d'une bonne
+            version, colle-la dans le champ «&nbsp;URL YouTube&nbsp;» (étape 2)
+            et clique «&nbsp;🚀 Tout faire&nbsp;». OmniTab construira un tab en
+            ~5&nbsp;min.
+          </p>
+          <Button
+            variant="secondary"
+            onClick={() =>
+              openYoutubeSearchFor(initialSearch.title, initialSearch.artist)
+            }
+          >
+            🔍 Chercher « {initialSearch.title} » sur YouTube
+          </Button>
+        </Card>
+      )}
 
       {/* Étape 1 — Choix du mode. Mode cards stay raw: the amber-bordered
           selection state + per-mode text colour can't be expressed as a

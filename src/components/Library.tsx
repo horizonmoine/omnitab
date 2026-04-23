@@ -399,10 +399,29 @@ export function Library({ onTabSelected }: LibraryProps) {
               padding="p-3"
               className="flex items-center gap-3"
             >
+              {/* Favoris toggle — visibility matters: the empty glyph (☆)
+                  inherits text colour, so on the dark panel we nudge it to
+                  amp-muted + amber-on-hover so users spot it. The filled
+                  glyph (⭐) renders its own built-in yellow regardless of
+                  CSS, so we only need to size it up on active state. */}
               <button
                 onClick={() => tab.id != null && toggleFavorite(tab.id)}
-                className="text-xl flex-shrink-0"
-                aria-label={tab.favorite ? 'Retirer des favoris' : 'Ajouter aux favoris'}
+                className={`text-2xl flex-shrink-0 leading-none transition-transform hover:scale-110 ${
+                  tab.favorite
+                    ? 'drop-shadow-[0_0_6px_rgba(245,158,11,0.45)]'
+                    : 'text-amp-muted hover:text-amp-accent'
+                }`}
+                title={
+                  tab.favorite
+                    ? 'Retirer des favoris'
+                    : 'Ajouter aux favoris'
+                }
+                aria-label={
+                  tab.favorite
+                    ? 'Retirer des favoris'
+                    : 'Ajouter aux favoris'
+                }
+                aria-pressed={tab.favorite}
               >
                 {tab.favorite ? '⭐' : '☆'}
               </button>

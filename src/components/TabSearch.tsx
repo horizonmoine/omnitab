@@ -1,10 +1,12 @@
 /**
  * Songsterr search UI.
  *
- * Searches the public Songsterr REST endpoint and opens the player page
- * on songsterr.com in a new tab. We used to support downloading the .gp
- * file and opening it in our own viewer, but Songsterr removed that
- * public endpoint in 2024, so this is now a pure outbound link.
+ * Two actions per result:
+ *   1. "Voir sur Songsterr" — outbound link to the player page, 100% reliable.
+ *   2. "Télécharger" — scrape the page for the .gp CDN URL, download via
+ *      /api/fetch-tab, save to library, open in viewer. Scrape is best-effort
+ *      because Songsterr removed the public .gp URL from most pages in 2024.
+ *      When it fails we surface the Songsterr link as fallback.
  */
 
 import { useState } from 'react';
@@ -16,9 +18,15 @@ import { toast } from './Toast';
 
 interface TabSearchProps {
   onTabSelected?: (data: ArrayBuffer | string, title: string) => void;
+  /** Demande à l'App de router vers la page Transcribe avec une chanson
+   *  Songsterr pré-remplie (fallback quand .gp n'est pas téléchargeable). */
+  onTranscribeRequested?: (title: string, artist: string) => void;
 }
 
-export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
+export function TabSearch({
+  onTabSelected,
+  onTranscribeRequested,
+}: TabSearchProps = {}) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SongsterrHit[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -27,12 +35,16 @@ export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
   // search. Otherwise the page would permanently display it on first load.
   const [hasSearched, setHasSearched] = useState(false);
   const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  // Tracks the last hit whose download failed — used to surface a prominent
+  // "Transcrire" CTA in the error strip so the user has an immediate next step.
+  const [failedHit, setFailedHit] = useState<SongsterrHit | null>(null);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setIsSearching(true);
     setError(null);
+    setFailedHit(null);
     setHasSearched(true);
     try {
       const hits = await searchSongsterr(query);
@@ -45,16 +57,40 @@ export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
     }
   };
 
+  /** Build the public Songsterr player URL for a given song id. The `-s${id}`
+   *  suffix is the only part Songsterr reads — the slug before it is cosmetic. */
+  const songsterrPlayerUrl = (id: number) =>
+    `https://www.songsterr.com/a/wsa/x-tab-s${id}`;
+
+  /** Outbound action: just open the Songsterr player in a new tab.
+   *  This always works — no scraping involved. */
+  const openOnSongsterr = (hit: SongsterrHit) => {
+    window.open(songsterrPlayerUrl(hit.id), '_blank', 'noopener,noreferrer');
+  };
+
+  /** Route the user to the Transcribe page with this hit pre-filled. This is
+   *  the fallback we recommend when the .gp download fails — the Transcriber
+   *  will run the YT → Demucs → basic-pitch pipeline to synthesise a tab. */
+  const transcribeHit = (hit: SongsterrHit) => {
+    if (!onTranscribeRequested) return;
+    onTranscribeRequested(hit.title, hit.artist.name);
+  };
+
   /** Télécharger le fichier via le scraper et le proxy, puis l'ouvrir. */
   const downloadAndOpenTab = async (hit: SongsterrHit) => {
     try {
       setDownloadingId(hit.id);
       setError(null);
+      setFailedHit(null);
 
-      // 1. Scrape the URL
+      // 1. Scrape the URL. Songsterr stripped the public .gp URL from most
+      //    pages in 2024, so this is best-effort — we redirect the user to
+      //    the outbound "Voir sur Songsterr" button when the scrape fails.
       const scrapeRes = await fetch(`/api/scrape-songsterr?id=${hit.id}`);
       if (!scrapeRes.ok) {
-        throw new Error('Impossible de trouver le fichier sur Songsterr.');
+        throw new Error(
+          'Songsterr n’expose plus le fichier .gp publiquement pour cette chanson. Utilise « Voir sur Songsterr » pour la jouer dans leur lecteur.',
+        );
       }
       const { url } = await scrapeRes.json();
 
@@ -91,6 +127,9 @@ export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
     } catch (err) {
       console.error(err);
       setError((err as Error).message);
+      // Remember which hit failed so we can offer a one-click "Transcrire"
+      // fallback right inside the error strip (no need to scroll back up).
+      setFailedHit(hit);
     } finally {
       setDownloadingId(null);
     }
@@ -116,8 +155,25 @@ export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
         </Button>
       </form>
 
-      {/* Real error (network / API failure) — red ErrorStrip. */}
-      {error && <div className="mb-4 max-w-none"><ErrorStrip>{error}</ErrorStrip></div>}
+      {/* Real error (network / API failure) — red ErrorStrip. When the
+          failure came from a specific hit and a Transcribe handler is wired,
+          surface a direct call-to-action so the user has a next step. */}
+      {error && (
+        <div className="mb-4 max-w-none">
+          <ErrorStrip>
+            <div>{error}</div>
+            {failedHit && onTranscribeRequested && (
+              <Button
+                variant="primary"
+                onClick={() => transcribeHit(failedHit)}
+                className="mt-2"
+              >
+                🤖 Transcrire « {failedHit.title} » depuis YouTube
+              </Button>
+            )}
+          </ErrorStrip>
+        </div>
+      )}
 
       {/* Empty result set — muted paragraph, not an error. */}
       {hasSearched && !isSearching && !error && results.length === 0 && (
@@ -146,14 +202,37 @@ export function TabSearch({ onTabSelected }: TabSearchProps = {}) {
                 )}
               </div>
             </div>
-            <Button
-              variant="secondary"
-              onClick={() => downloadAndOpenTab(hit)}
-              className="ml-3"
-              disabled={downloadingId === hit.id}
-            >
-              {downloadingId === hit.id ? 'Téléchargement...' : 'Télécharger & Ouvrir'}
-            </Button>
+            {/* Three distinct actions — outbound (reliable), download
+                (best-effort, scraper can fail), and AI transcription fallback
+                (pipeline lives on the Transcribe page). `flex-wrap` keeps
+                them readable on mobile where 3 buttons + artist/title fight
+                for horizontal space. */}
+            <div className="ml-3 flex flex-shrink-0 flex-wrap justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => openOnSongsterr(hit)}
+                title="Ouvrir la page Songsterr dans un nouvel onglet"
+              >
+                Voir sur Songsterr
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => downloadAndOpenTab(hit)}
+                disabled={downloadingId === hit.id}
+                title="Télécharger le .gp et l’ajouter à ta bibliothèque locale"
+              >
+                {downloadingId === hit.id ? 'Téléchargement…' : 'Télécharger'}
+              </Button>
+              {onTranscribeRequested && (
+                <Button
+                  variant="secondary"
+                  onClick={() => transcribeHit(hit)}
+                  title="Générer un tab via le pipeline YouTube → Demucs → basic-pitch"
+                >
+                  🤖 Transcrire
+                </Button>
+              )}
+            </div>
           </Card>
         ))}
       </div>
