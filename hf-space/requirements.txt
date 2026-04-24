@@ -9,4 +9,11 @@ soundfile>=0.12.1
 numpy>=1.24,<2.0
 einops>=0.7.0
 diffq>=0.2.4
-yt-dlp>=2024.4.0
+# yt-dlp must be kept current — YouTube rotates their player API roughly
+# every 2–3 months and old versions hit "SSL: UNEXPECTED_EOF" / "Sign in
+# to confirm you're not a bot". Bump this floor whenever the HF Space
+# starts returning 500s on /youtube-audio. The Dockerfile also runs an
+# explicit `pip install --upgrade yt-dlp` step so we always get the most
+# recent release published before the build, even when the Docker layer
+# cache would otherwise pin us to a stale version.
+yt-dlp>=2026.4.0

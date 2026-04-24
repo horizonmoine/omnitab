@@ -234,12 +234,33 @@ def youtube_audio(url: str = Query(..., description="YouTube URL")):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_template = str(Path(tmpdir) / "audio.%(ext)s")
+        # YouTube rotates its anti-bot defenses every few weeks. The keys
+        # below are the ones that have empirically kept this endpoint alive:
+        #
+        #   player_client=android,web,ios → yt-dlp falls back through three
+        #     different YouTube API surfaces. When the `web` client gets a
+        #     fresh cipher / sign-in wall, `android` is usually still happy.
+        #   retries / fragment_retries → 5 retries on HTTP errors (the SSL
+        #     UNEXPECTED_EOF we saw is one of these).
+        #   extractor_retries → 3 retries when YouTube returns a malformed
+        #     response (separate code path from network retries in yt-dlp).
+        #   socket_timeout=20 → bail fast on a hung connection so we don't
+        #     occupy the HF Space's single FastAPI worker.
         opts = {
             "format": "bestaudio/best",
             "outtmpl": out_template,
             "quiet": True,
             "noplaylist": True,
             "max_downloads": 1,
+            "retries": 5,
+            "fragment_retries": 5,
+            "extractor_retries": 3,
+            "socket_timeout": 20,
+            "extractor_args": {
+                "youtube": {
+                    "player_client": ["android", "web", "ios"],
+                },
+            },
             "postprocessors": [
                 {
                     "key": "FFmpegExtractAudio",
@@ -264,7 +285,19 @@ def youtube_audio(url: str = Query(..., description="YouTube URL")):
             raise
         except Exception as exc:
             log.exception("yt-dlp failed")
-            raise HTTPException(500, f"youtube extraction failed: {exc}")
+            # Surface a hint to the client when the failure smells like a
+            # version-skew issue (YouTube changed something faster than
+            # yt-dlp shipped a fix). The PWA shows this string in a toast.
+            msg = str(exc)
+            hint = ""
+            lower = msg.lower()
+            if "ssl" in lower or "eof" in lower or "sign in" in lower or "bot" in lower:
+                hint = (
+                    " — yt-dlp may be out of date on the backend. "
+                    "Rebuild the HF Space (touch YTDLP_CACHE_BUST in the Dockerfile) "
+                    "or retry in a few minutes."
+                )
+            raise HTTPException(500, f"youtube extraction failed: {msg}{hint}")
 
         mp3_path = Path(tmpdir) / "audio.mp3"
         if not mp3_path.exists():
