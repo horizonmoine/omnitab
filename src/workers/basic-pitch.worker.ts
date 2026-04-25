@@ -20,6 +20,28 @@
 
 /// <reference lib="webworker" />
 
+// ── TF.js worker polyfill ────────────────────────────────────────────────
+//
+// @spotify/basic-pitch ships TF.js 4.x, whose `platform_browser.js` shim
+// calls `window.setTimeout(...)` from inside the WebGL fence-polling code
+// (`gpgpu_context.js > Gu.pollFence > setTimeoutCustom`). Web Workers have
+// `self`, not `window`, so that call throws ReferenceError. The promise
+// awaiting the fence rejects silently and basic-pitch hangs forever at
+// "Analyse audio… 0%" — confirmed visually in DevTools console.
+//
+// Workaround: alias `self` as `window` BEFORE the dynamic import of
+// basic-pitch (which transitively imports TF.js). `self` exposes
+// setTimeout, setInterval, fetch, navigator, etc. — the subset TF.js's
+// browser platform shim actually touches. Anything that genuinely needs
+// `document` would still fail, but TF.js's WebGL backend doesn't.
+//
+// Without this fix: TF.js silently falls back to CPU OR hangs (depending
+// on which TF.js path runs first). With this fix: TF.js initializes
+// WebGL via OffscreenCanvas → ~10× faster than CPU on a 3-min song.
+if (typeof (self as { window?: unknown }).window === 'undefined') {
+  (self as unknown as { window: typeof self }).window = self;
+}
+
 import type { DetectedNote, TranscriptionParams } from '../lib/types';
 import { DEFAULT_TRANSCRIPTION_PARAMS } from '../lib/types';
 
