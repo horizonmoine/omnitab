@@ -137,7 +137,7 @@ export default async function handler(request: Request): Promise<Response> {
   return jsonError(
     502,
     `Extraction YouTube échouée. ${parts.join(' / ')}. ` +
-      `Astuce : convertis ton lien sur cobalt.tools puis charge le MP3.`,
+      `Astuce : utilise yt-dlp en local (voir le panneau d'aide sous le champ URL).`,
   );
 }
 

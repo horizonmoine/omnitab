@@ -178,7 +178,7 @@ export function Transcriber({
       // the <details> block in the JSX). Append a nudge to the toast so
       // users find the workaround without needing to scroll/scan the page.
       toast.error(
-        `${(err as Error).message} — astuce : convertis ton lien sur cobalt.tools puis charge le MP3.`,
+        `${(err as Error).message} — astuce : utilise yt-dlp en local pour récupérer le MP3 (voir le panneau « 💡 L'import YouTube a échoué ? » sous le champ).`,
       );
     } finally {
       setYtFetching(false);
@@ -706,48 +706,91 @@ export function Transcriber({
           )}
 
           {/* Always-works fallback. YouTube blocks our cloud backend at the
-              TLS layer, but a real browser's TLS fingerprint isn't blocked,
-              so a manual converter (cobalt.tools' web UI, run inside the
-              user's browser) reliably gets the MP3. Two clicks instead of
-              one — annoying but it always works. Collapsed by default so
-              users who succeed never see it. */}
+              TLS layer in 2025-2026, and the public converters that used
+              to work (cobalt.tools etc.) have all disabled YouTube too
+              for the same reason. The only thing that reliably works is
+              yt-dlp running on the user's OWN machine — residential IP,
+              real TLS fingerprint, not blocked. We list two paths:
+                a) yt-dlp (one command, bulletproof, dev-friendly)
+                b) consumer YT-to-MP3 sites (work today, may break tomorrow)
+              Collapsed by default so successful users never see it. */}
           <details className="mt-2 rounded border border-amp-accent/30 bg-amp-accent/5 px-3 py-2 text-xs">
             <summary className="cursor-pointer font-semibold text-amp-accent">
               💡 L'import YouTube a échoué ? Clique pour la solution
             </summary>
-            <div className="mt-2 space-y-2 text-amp-muted">
+            <div className="mt-2 space-y-3 text-amp-muted">
               <p>
-                YouTube bloque les serveurs cloud (notre backend) au niveau
-                TLS depuis 2025 — c'est indépendant de notre code. Un
-                convertisseur lancé dans <em>ton</em> navigateur fonctionne
-                toujours, parce que ton navigateur a une vraie empreinte TLS.
+                YouTube bloque tous les services cloud au niveau TLS depuis
+                2025 — notre backend, cobalt.tools, Piped, Invidious, tous
+                touchés. Le seul truc qui marche de façon fiable, c'est{' '}
+                <strong className="text-amp-text">yt-dlp lancé sur ta
+                machine</strong> (ton IP résidentielle n'est pas blacklistée).
               </p>
-              <ol className="ml-4 list-decimal space-y-1">
-                <li>
-                  Ouvre{' '}
+
+              <div>
+                <div className="font-semibold text-amp-text mb-1">
+                  Option A — yt-dlp (recommandé, ~30s setup une fois pour
+                  toutes)
+                </div>
+                <ol className="ml-4 list-decimal space-y-1">
+                  <li>
+                    Télécharge{' '}
+                    <a
+                      href="https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-amp-accent underline hover:no-underline"
+                    >
+                      yt-dlp.exe
+                    </a>{' '}
+                    (Windows, ~15 MB) — ou{' '}
+                    <code className="rounded bg-amp-bg/50 px-1">
+                      brew install yt-dlp
+                    </code>{' '}
+                    sur Mac,{' '}
+                    <code className="rounded bg-amp-bg/50 px-1">
+                      pip install yt-dlp
+                    </code>{' '}
+                    partout
+                  </li>
+                  <li>
+                    Lance dans un terminal :{' '}
+                    <code className="block mt-1 rounded bg-amp-bg/50 p-2 font-mono text-amp-text">
+                      yt-dlp -x --audio-format mp3 "URL_YOUTUBE_ICI"
+                    </code>
+                  </li>
+                  <li>
+                    Tu obtiens un MP3 dans le dossier courant — clique
+                    « Choose File » ci-dessus pour le charger
+                  </li>
+                </ol>
+              </div>
+
+              <div>
+                <div className="font-semibold text-amp-text mb-1">
+                  Option B — Convertisseur en ligne (rapide mais fragile)
+                </div>
+                <p>
+                  Cherche{' '}
                   <a
-                    href="https://cobalt.tools"
+                    href="https://www.google.com/search?q=youtube+to+mp3"
                     target="_blank"
                     rel="noopener noreferrer"
                     className="text-amp-accent underline hover:no-underline"
                   >
-                    cobalt.tools
+                    « youtube to mp3 »
                   </a>{' '}
-                  dans un nouvel onglet
-                </li>
-                <li>
-                  Colle ton URL YouTube → choisis « Audio » → format MP3
-                </li>
-                <li>Télécharge le fichier MP3 obtenu (~10s)</li>
-                <li>
-                  Reviens ici et utilise « Choose File » ci-dessus pour
-                  charger le MP3
-                </li>
-              </ol>
+                  et essaie un site (ytmp3.cc, yt5s.com, ssyoutube.com…).
+                  Ces sites changent souvent — si le premier essayé ne
+                  marche pas, prends le suivant dans les résultats. Attention
+                  aux pubs/popups, ne télécharge rien d'autre que le MP3.
+                </p>
+              </div>
+
               <p className="text-amp-muted/80">
-                Le reste du pipeline (Demucs + basic-pitch) s'exécute sur
-                notre backend comme d'habitude. Tu n'as qu'à contourner
-                l'étape YouTube.
+                Le reste du pipeline OmniTab (Demucs + basic-pitch) tourne
+                sans problème — c'est uniquement l'étape YouTube qui est
+                bloquée.
               </p>
             </div>
           </details>
