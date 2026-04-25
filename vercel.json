@@ -1,6 +1,11 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
+  "functions": {
+    "api/youtube-audio.ts": {
+      "maxDuration": 120
+    }
+  },
   "headers": [
     {
       "source": "/sw.js",

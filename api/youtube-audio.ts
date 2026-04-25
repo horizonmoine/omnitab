@@ -23,12 +23,21 @@
  * carry metadata. The `X-Omnitab-Source` response header tells you which
  * backend served the audio (handy for debugging).
  *
- * Runtime: Edge. Same `(request: Request) => Response` shape as the other
- * `/api/*` handlers — Fluid Compute migration is queued for all three at
- * once (see api/songsterr.ts comment for the rationale).
+ * Runtime: Fluid Compute (Node.js). Migrated from Edge in 2026-04 because
+ * Edge has a hard 25s execution cap that's shorter than yt-dlp's own
+ * retry budget on the HF Space (~60-80s) — we'd FUNCTION_INVOCATION_TIMEOUT
+ * before yt-dlp had even decided whether the request would work. Node.js
+ * Fluid Compute gives 300s by default and supports the same Web Fetch API
+ * `(request: Request) => Response` shape as Edge, so the only change is
+ * dropping the runtime config below. The other /api/*.ts handlers stay on
+ * Edge — they're fast (Songsterr API + small file scrapes) and benefit
+ * from the sub-millisecond cold start there.
+ *
+ * Per-route maxDuration is declared in vercel.json so we get the full 300s
+ * budget without needing a Pro plan upgrade. Active CPU pricing means we
+ * only pay for the wall-clock time yt-dlp is actually computing, not the
+ * long awaits on HF Space.
  */
-
-export const config = { runtime: 'edge' };
 
 // ── Backend endpoints ────────────────────────────────────────────────────
 
