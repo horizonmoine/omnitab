@@ -23,7 +23,7 @@ RUN apt-get update && \
 # "Sign in to confirm you're not a bot" with no other signal. Splitting
 # this into its own layer means we can poke this RUN line (e.g. via the
 # ARG below) to invalidate the cache without touching requirements.txt.
-ARG YTDLP_CACHE_BUST=2026-04-25-2
+ARG YTDLP_CACHE_BUST=2026-04-25-3-tv-client
 RUN echo "yt-dlp cache-bust: ${YTDLP_CACHE_BUST}" && \
     pip install --no-cache-dir --upgrade yt-dlp && \
     yt-dlp --version

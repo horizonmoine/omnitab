@@ -234,18 +234,26 @@ def youtube_audio(url: str = Query(..., description="YouTube URL")):
 
     with tempfile.TemporaryDirectory() as tmpdir:
         out_template = str(Path(tmpdir) / "audio.%(ext)s")
-        # YouTube rotates its anti-bot defenses every few weeks. The keys
-        # below are the ones that have empirically kept this endpoint alive:
+        # YouTube rotates its anti-bot defenses every few weeks. The config
+        # below reflects what's currently known to bypass the rate-limit /
+        # SSL-EOF wall on shared-IP cloud infrastructure (HF Spaces, Vercel,
+        # etc.) as of April 2026:
         #
-        #   player_client=android,web,ios → yt-dlp falls back through three
-        #     different YouTube API surfaces. When the `web` client gets a
-        #     fresh cipher / sign-in wall, `android` is usually still happy.
-        #   retries / fragment_retries → 5 retries on HTTP errors (the SSL
-        #     UNEXPECTED_EOF we saw is one of these).
+        #   player_client=tv,mweb,web_safari,android_vr → these are the
+        #     less-tracked client identities. The standard `android`/`web`
+        #     /`ios` triad is heavily fingerprinted now and shared cloud
+        #     IPs hit the rate limit ~immediately (visible as SSL: EOF on
+        #     the API page download — YouTube drops the TLS handshake).
+        #     `tv` (the TV interface) is the most reliable bypass because
+        #     YouTube's TV API is less aggressively gated; `mweb` and
+        #     `android_vr` have similar properties.
+        #   retries / fragment_retries → 5 retries on HTTP errors.
         #   extractor_retries → 3 retries when YouTube returns a malformed
         #     response (separate code path from network retries in yt-dlp).
         #   socket_timeout=20 → bail fast on a hung connection so we don't
         #     occupy the HF Space's single FastAPI worker.
+        #   user_agent → match a recent Safari to look like a real browser
+        #     (the tv/mweb clients still send a UA header).
         opts = {
             "format": "bestaudio/best",
             "outtmpl": out_template,
@@ -256,9 +264,21 @@ def youtube_audio(url: str = Query(..., description="YouTube URL")):
             "fragment_retries": 5,
             "extractor_retries": 3,
             "socket_timeout": 20,
+            "user_agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/605.1.15 (KHTML, like Gecko) "
+                "Version/17.4 Safari/605.1.15"
+            ),
             "extractor_args": {
                 "youtube": {
-                    "player_client": ["android", "web", "ios"],
+                    # Order matters — we try them left to right.
+                    # `tv` first because it's the least-blocked client.
+                    "player_client": ["tv", "mweb", "web_safari", "android_vr"],
+                    # Skip the redundant webpage download when extracting
+                    # via tv/mweb (those clients don't need it). Saves
+                    # ~3s and one round-trip that sometimes triggers the
+                    # bot detector on its own.
+                    "player_skip": ["webpage", "configs"],
                 },
             },
             "postprocessors": [
