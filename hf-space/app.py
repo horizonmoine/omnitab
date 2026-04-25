@@ -14,21 +14,20 @@ HF Spaces serves this on port 7860 over HTTPS automatically.
 
 from __future__ import annotations
 
-import gc
 import hashlib
 import io
 import logging
 import os
 import tempfile
 import threading
-from collections import OrderedDict
+import time
 from pathlib import Path
 
 import torch
 import torchaudio
 from fastapi import FastAPI, File, HTTPException, Query, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 
 from demucs.apply import apply_model
 from demucs.audio import AudioFile, save_audio
@@ -73,61 +72,70 @@ def load_model(name: str):
         return _model_cache[name]
 
 
-# ── Per-file separation cache ────────────────────────────────────────────
+# ── Per-file separation cache (on-disk) ──────────────────────────────────
 #
 # The PWA's "Tout faire" pipeline calls /separate-stream once per stem
-# (vocals, drums, bass, other = 4 calls per song). Without this cache, we'd
-# run the full Demucs separation FOUR times for the same audio — wasting
-# ~9 minutes of CPU time per song AND building up enough memory pressure
-# (Demucs forward + 4 stem WAVs + StreamingResponse buffer) that the 4th
-# call OOM-kills the worker on HF Space CPU Basic (16 GB RAM but shared
-# with other tenants in practice).
+# (vocals, drums, bass, other = 4 calls per song). Without caching, we'd
+# run the full Demucs separation FOUR times — wasting ~9 minutes of CPU
+# AND OOM-killing the worker on HF Space CPU Basic.
 #
-# The cache stores the *full* dict {stem_name: wav_bytes} for each input
-# file, keyed by SHA256(file_bytes) + model_name. The first call computes
-# everything and stores it; subsequent calls for other stems of the same
-# file hit the cache in <100ms.
+# The previous attempt at this cached the dict {stem: bytes} IN MEMORY,
+# which kept ~160 MB held per file plus the StreamingResponse buffer plus
+# the 250 MB Demucs model = OOM during streaming of stem 2. Fix: write
+# stems to /tmp on disk and stream them back via FileResponse. FileResponse
+# uses zero-copy sendfile() in Starlette — the WAV bytes never enter
+# Python's address space, so memory stays at ~250 MB (just the model)
+# regardless of how many cached stems exist.
 #
-# Capacity: MAX=2 entries → ~400 MB worst case (each entry ≈ 4 stems ×
-# 40 MB WAV ≈ 200 MB for a typical 4-min song). LRU eviction so the most
-# recent file's stems stay hot. Lock-protected for thread safety even
-# though FastAPI runs single-worker by default — defensive habit.
+# Layout:  /tmp/omnitab_separations/<model>__<sha256-of-file>/<stem>.wav
+#
+# Eviction: TTL-based. On each new separation we sweep dirs older than
+# SEPARATION_TTL_S (default 1 hour). Disk usage caps at ~10 GB worst case
+# even under heavy use — HF Space CPU Basic has 50 GB ephemeral so plenty.
 
-_separation_cache: "OrderedDict[str, dict[str, bytes]]" = OrderedDict()
-_separation_cache_lock = threading.Lock()
-_SEPARATION_CACHE_MAX = 2
-
-
-def _cache_get(key: str) -> dict[str, bytes] | None:
-    with _separation_cache_lock:
-        result = _separation_cache.get(key)
-        if result is not None:
-            # LRU touch: move to end so most-recently-used is freshest.
-            _separation_cache.move_to_end(key)
-        return result
+SEPARATION_ROOT = Path("/tmp/omnitab_separations")
+SEPARATION_TTL_S = int(os.environ.get("OMNITAB_SEPARATION_TTL_S", "3600"))
 
 
-def _cache_put(key: str, value: dict[str, bytes]) -> None:
-    with _separation_cache_lock:
-        _separation_cache[key] = value
-        _separation_cache.move_to_end(key)
-        # Evict oldest entries if we're over capacity. Force a GC pass
-        # after eviction so the underlying bytes objects (~200 MB each)
-        # actually return to the OS instead of sitting in Python's heap.
-        evicted = False
-        while len(_separation_cache) > _SEPARATION_CACHE_MAX:
-            old_key, _old_value = _separation_cache.popitem(last=False)
-            log.info("separation cache  evict  key=%s", old_key[:16])
-            evicted = True
-        if evicted:
-            gc.collect()
+def _separation_dir(file_bytes: bytes, model_name: str) -> Path:
+    digest = hashlib.sha256(file_bytes).hexdigest()[:32]
+    return SEPARATION_ROOT / f"{model_name}__{digest}"
+
+
+def _sweep_old_separations() -> None:
+    """Delete separation directories older than SEPARATION_TTL_S seconds.
+    Cheap (just stat calls) so safe to run on every separation."""
+    if not SEPARATION_ROOT.exists():
+        return
+    cutoff = time.time() - SEPARATION_TTL_S
+    for d in SEPARATION_ROOT.iterdir():
+        try:
+            if d.is_dir() and d.stat().st_mtime < cutoff:
+                for f in d.iterdir():
+                    try:
+                        f.unlink()
+                    except OSError:
+                        pass
+                d.rmdir()
+                log.info("separation cache  TTL evict  dir=%s", d.name)
+        except OSError:
+            pass
 
 
 # ── Separation core ─────────────────────────────────────────────────────
 
-def separate_audio(file_bytes: bytes, model_name: str) -> dict[str, bytes]:
-    """Run Demucs on raw audio bytes → dict of {stem_name: wav_bytes}."""
+def separate_audio_to_dir(
+    file_bytes: bytes, model_name: str, out_dir: Path
+) -> list[str]:
+    """Run Demucs on raw audio bytes and write each stem to <out_dir>/<name>.wav.
+
+    Returns the list of stem names produced (matches model.sources). Does
+    NOT keep any of the stem audio in memory — bytes go straight to disk
+    via demucs.save_audio() so /separate-stream can later stream them back
+    via FileResponse without loading them into Python.
+    """
     model = load_model(model_name)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_in:
         tmp_in.write(file_bytes)
@@ -155,36 +163,17 @@ def separate_audio(file_bytes: bytes, model_name: str) -> dict[str, bytes]:
 
         sources = sources * ref.std() + ref.mean()
 
-        # Demucs's save_audio() forwards to torchaudio.save() which calls
-        # os.fspath() on the destination — that means it requires a real
-        # filesystem path (str/Path), NOT an io.BytesIO. A previous version
-        # of this file passed a BytesIO and worked because of a particular
-        # torchaudio version that auto-bridged to libsndfile via the file
-        # descriptor; the current torch/torchaudio combo (2.5.1 CPU) has
-        # tightened that and raises TypeError. The fix is to write each
-        # stem to a per-stem temp file, slurp it back, then delete it.
-        stems: dict[str, bytes] = {}
-        out_paths: list[Path] = []
-        try:
-            for name, source in zip(model.sources, sources):
-                # delete=False so we can re-open by path on Windows-style
-                # filesystems (HF Space is Linux but keeping the pattern
-                # consistent with the input tempfile above).
-                with tempfile.NamedTemporaryFile(
-                    suffix=".wav", delete=False
-                ) as tmp_out:
-                    out_path = Path(tmp_out.name)
-                out_paths.append(out_path)
-                save_audio(source, str(out_path), samplerate=model.samplerate)
-                stems[name] = out_path.read_bytes()
-        finally:
-            for p in out_paths:
-                try:
-                    p.unlink()
-                except OSError:
-                    pass
+        # Write each stem directly to its final destination on disk.
+        # demucs.save_audio() → torchaudio.save() requires a str path
+        # (it calls os.fspath() under the hood). We pass the resolved
+        # Path, no intermediate tempfile or in-memory buffer needed.
+        produced: list[str] = []
+        for name, source in zip(model.sources, sources):
+            out_path = out_dir / f"{name}.wav"
+            save_audio(source, str(out_path), samplerate=model.samplerate)
+            produced.append(name)
 
-        return stems
+        return produced
     finally:
         try:
             in_path.unlink()
@@ -259,22 +248,20 @@ def separate_stream(
     """
     data = _validate_upload(file)
 
-    # Cache key: SHA256 of file bytes + model name. The PWA calls this
-    # endpoint 4× per song (one per stem), and we want all four calls to
-    # hit the same cache entry — so we hash the bytes, not the filename
-    # (different uploads of the same audio collide cleanly, and the same
-    # audio uploaded with a different filename also collides cleanly).
-    cache_key = f"{model}:{hashlib.sha256(data).hexdigest()}"
+    # Cache lookup: directory keyed by SHA256(file_bytes) + model name.
+    # The PWA calls this endpoint 4× per song (once per stem) with the
+    # same body each time, so all four calls land in the same dir.
+    out_dir = _separation_dir(data, model)
+    expected_path = out_dir / f"{stem}.wav"
 
-    cached = _cache_get(cache_key)
-    if cached is not None:
+    if expected_path.exists() and expected_path.stat().st_size > 0:
         log.info(
-            "/separate-stream  cache_HIT  file=%s  stem=%s  model=%s",
+            "/separate-stream  cache_HIT  file=%s  stem=%s  model=%s  size=%d",
             file.filename,
             stem,
             model,
+            expected_path.stat().st_size,
         )
-        stems = cached
     else:
         log.info(
             "/separate-stream  cache_MISS  file=%s  size=%d  stem=%s  model=%s",
@@ -283,23 +270,35 @@ def separate_stream(
             stem,
             model,
         )
+        # Sweep stale entries before adding a new one — keeps disk usage
+        # bounded under heavy traffic without needing a background worker.
+        _sweep_old_separations()
         try:
-            stems = separate_audio(data, model)
+            produced = separate_audio_to_dir(data, model, out_dir)
         except Exception as exc:
             log.exception("separation failed")
             raise HTTPException(500, f"separation failed: {exc}")
-        _cache_put(cache_key, stems)
+        if stem not in produced:
+            raise HTTPException(
+                404,
+                f"stem '{stem}' not in model output. Available: {produced}",
+            )
 
-    if stem not in stems:
+    if not expected_path.exists():
+        # Should be impossible after a successful separation, but guard
+        # against partial writes / race conditions.
         raise HTTPException(
-            404,
-            f"stem '{stem}' not in model output. Available: {list(stems.keys())}",
+            500, f"stem '{stem}' file missing after separation"
         )
 
-    return StreamingResponse(
-        io.BytesIO(stems[stem]),
+    # FileResponse uses Starlette's zero-copy sendfile() path — the WAV
+    # bytes never enter Python's address space, so memory stays at
+    # ~250 MB (just the model) regardless of file size or concurrent
+    # streams. This is the architectural fix for the OOM-on-stem-2 bug.
+    return FileResponse(
+        path=expected_path,
         media_type="audio/wav",
-        headers={"Content-Disposition": f'attachment; filename="{stem}.wav"'},
+        filename=f"{stem}.wav",
     )
 
 
