@@ -362,8 +362,9 @@ export function Transcriber({
     if (!resultTex) return;
     const kind = mode === 'guitar' ? 'generated' : 'cover';
     const modeTag = mode === 'guitar' ? 'guitare-reelle' : 'chant-accords';
+    const tabTitle = label || 'Transcription';
     await addTabToLibrary({
-      title: label || 'Transcription',
+      title: tabTitle,
       artist: mode === 'guitar' ? 'Transcrit (IA)' : 'Arrangé (IA)',
       kind,
       format: 'tex',
@@ -371,6 +372,10 @@ export function Transcriber({
       favorite: false,
       tags: ['ai-transcribed', modeTag, useDemucs ? 'demucs' : 'raw'],
     });
+    // Mirror the pipeline's "where it lands" cue — without the toast the
+    // only feedback was the button briefly flickering, leaving the user
+    // wondering whether the save actually happened.
+    toast.success(`« ${tabTitle} » sauvée dans 📚 Bibliothèque.`);
   };
 
   /** Separate all 4 stems via Demucs and save to IndexedDB for offline playback. */

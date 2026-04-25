@@ -117,7 +117,9 @@ export function TabSearch({
         sourceUrl: `https://www.songsterr.com/a/wsa/x-tab-s${hit.id}`,
       });
 
-      toast.success('Tablature téléchargée avec succès !');
+      toast.success(
+        `« ${hit.title} » sauvée dans 📚 Bibliothèque.`,
+      );
 
       // 4. Open in viewer
       if (onTabSelected) {

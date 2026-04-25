@@ -170,21 +170,56 @@ export async function separateStem(
 /**
  * Ask the backend to extract audio from a YouTube URL via yt-dlp.
  *
- * The server caps videos at 10 minutes (configurable via OMNITAB_YT_MAX_DURATION_S)
- * to keep the Space responsive. Returns the MP3 blob plus a best-effort title
- * lifted from yt-dlp's metadata (via the `X-Omnitab-Title` response header).
+ * In prod we route through `/api/youtube-audio` on Vercel — that proxy
+ * tries the HF Space first, then falls back to the Cobalt API when HF
+ * is sleeping or yt-dlp has been broken by a YouTube cipher rotation.
+ * That fallback is invisible to the caller; this function still returns
+ * `{ blob, title }` regardless of which backend served the bytes.
+ *
+ * The proxy is bypassed in two cases:
+ *   - `import.meta.env.DEV` — `vite dev` doesn't run Vercel functions, so
+ *     hitting `/api/*` would 404. We go direct to the configured backend.
+ *   - User has set a custom backend URL in Settings — they're running their
+ *     own infra and probably want every call to go there (no Cobalt
+ *     surprise). The Cobalt fallback is purely a default-backend safety net.
+ *
+ * Title comes back via the `X-Omnitab-Title` response header. In prod the
+ * proxy fills it from YouTube's anonymous oEmbed endpoint so we always
+ * have a real title — even when Cobalt's response wouldn't normally carry
+ * one. The 10-minute cap is enforced server-side (OMNITAB_YT_MAX_DURATION_S
+ * on the HF Space).
  */
 export async function fetchYoutubeAudio(
   url: string,
 ): Promise<{ blob: Blob; title: string }> {
-  const baseUrl = getBackendUrl();
-  if (!baseUrl) throw new Error('Aucun backend configuré (voir Réglages).');
+  const override = (
+    globalThis as { __OMNITAB_DEMUCS_URL__?: string }
+  ).__OMNITAB_DEMUCS_URL__;
+  const useProxy = !import.meta.env.DEV && !override?.trim();
 
-  const endpoint = `${baseUrl}/youtube-audio?url=${encodeURIComponent(url)}`;
+  let endpoint: string;
+  if (useProxy) {
+    endpoint = `/api/youtube-audio?url=${encodeURIComponent(url)}`;
+  } else {
+    const baseUrl = getBackendUrl();
+    if (!baseUrl) throw new Error('Aucun backend configuré (voir Réglages).');
+    endpoint = `${baseUrl}/youtube-audio?url=${encodeURIComponent(url)}`;
+  }
+
   const res = await fetch(endpoint);
 
   if (!res.ok) {
-    const detail = await res.text().catch(() => '');
+    // The proxy and the HF Space both reply with `{ "detail": "..." }`
+    // on error. Unwrap that so the user sees a clean French sentence
+    // instead of a raw JSON blob in the error toast.
+    const raw = await res.text().catch(() => '');
+    let detail = raw;
+    try {
+      const j = JSON.parse(raw) as { detail?: string; error?: string };
+      detail = j.detail ?? j.error ?? raw;
+    } catch {
+      // not JSON — keep the raw text
+    }
     throw new Error(
       `YouTube a échoué (HTTP ${res.status})${detail ? ` : ${detail}` : ''}`,
     );
