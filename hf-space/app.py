@@ -102,11 +102,34 @@ def separate_audio(file_bytes: bytes, model_name: str) -> dict[str, bytes]:
 
         sources = sources * ref.std() + ref.mean()
 
+        # Demucs's save_audio() forwards to torchaudio.save() which calls
+        # os.fspath() on the destination — that means it requires a real
+        # filesystem path (str/Path), NOT an io.BytesIO. A previous version
+        # of this file passed a BytesIO and worked because of a particular
+        # torchaudio version that auto-bridged to libsndfile via the file
+        # descriptor; the current torch/torchaudio combo (2.5.1 CPU) has
+        # tightened that and raises TypeError. The fix is to write each
+        # stem to a per-stem temp file, slurp it back, then delete it.
         stems: dict[str, bytes] = {}
-        for name, source in zip(model.sources, sources):
-            buf = io.BytesIO()
-            save_audio(source, buf, samplerate=model.samplerate)
-            stems[name] = buf.getvalue()
+        out_paths: list[Path] = []
+        try:
+            for name, source in zip(model.sources, sources):
+                # delete=False so we can re-open by path on Windows-style
+                # filesystems (HF Space is Linux but keeping the pattern
+                # consistent with the input tempfile above).
+                with tempfile.NamedTemporaryFile(
+                    suffix=".wav", delete=False
+                ) as tmp_out:
+                    out_path = Path(tmp_out.name)
+                out_paths.append(out_path)
+                save_audio(source, str(out_path), samplerate=model.samplerate)
+                stems[name] = out_path.read_bytes()
+        finally:
+            for p in out_paths:
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
 
         return stems
     finally:
