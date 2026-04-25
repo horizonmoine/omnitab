@@ -35,8 +35,32 @@
 export const config = { runtime: 'edge' };
 
 // ── Backend endpoints ────────────────────────────────────────────────────
+//
+// We try a custom backend (e.g. self-hosted on a VPS, see selfhost/) FIRST
+// when its URL is provided via the OMNITAB_YT_BACKEND_URL Vercel env var,
+// then fall through to the HF Space. The VPS path exists because YouTube
+// blocks HuggingFace Spaces' shared IP range at the TLS handshake layer
+// in 2026 — a residential or non-cloud VPS IP usually isn't blocked, so
+// users who set up their own backend get a reliable fast path while
+// everyone else gets the HF Space (which works when YouTube's anti-bot
+// sleeps) plus the cobalt.tools manual workaround documented in the PWA.
 
 const HF_SPACE_BASE = 'https://horizonmoine30-omnitab-demucs.hf.space';
+
+/**
+ * Read the optional self-hosted backend URL from Vercel's environment.
+ * The function is intentionally tolerant: trailing slashes, leading
+ * whitespace, and non-https schemes (e.g. http for IPv4-only VPS) all
+ * pass through unchanged. Empty / unset returns null.
+ */
+function getCustomBackendUrl(): string | null {
+  const raw = (
+    globalThis as { process?: { env?: Record<string, string | undefined> } }
+  ).process?.env?.OMNITAB_YT_BACKEND_URL;
+  if (!raw) return null;
+  const trimmed = raw.trim().replace(/\/+$/, '');
+  return trimmed || null;
+}
 
 // ── Timeouts ─────────────────────────────────────────────────────────────
 //
@@ -84,21 +108,36 @@ export default async function handler(request: Request): Promise<Response> {
   // path and we want it ready by the time we start streaming bytes back.
   const titlePromise = fetchOembedTitle(ytUrl);
 
-  // ── HF Space (only backend) ──────────────────────────────────────────
-  const hf = await tryHfSpace(ytUrl);
+  // ── Try custom self-hosted backend first (if configured) ─────────────
+  const customUrl = getCustomBackendUrl();
+  let customError: string | undefined;
+  if (customUrl) {
+    const custom = await tryBackend(customUrl, ytUrl);
+    if (custom.ok) {
+      const title = (await titlePromise) ?? custom.title ?? 'YouTube audio';
+      return streamWithMeta(custom.body, custom.contentType, title, 'custom');
+    }
+    customError = custom.error;
+  }
+
+  // ── Fall back to HF Space ────────────────────────────────────────────
+  const hf = await tryBackend(HF_SPACE_BASE, ytUrl);
   if (hf.ok) {
     const title = (await titlePromise) ?? hf.title ?? 'YouTube audio';
     return streamWithMeta(hf.body, hf.contentType, title, 'hf-space');
   }
 
-  // HF failed — surface its error verbatim. tryHfSpace already detects
-  // the common "yt-dlp out of date" pattern and rewrites it into an
-  // actionable hint. We also nudge the user toward the file-upload
-  // alternative since YT extraction is the only flaky step in the pipeline.
+  // Everything failed. Build a single error message that mentions every
+  // backend we tried so the user (or maintainer reading logs) knows what
+  // happened. tryBackend already detects the common "yt-dlp out of date"
+  // pattern and rewrites it into an actionable hint.
+  const parts: string[] = [];
+  if (customError) parts.push(`backend custom: ${customError}`);
+  parts.push(`HF Space: ${hf.error ?? 'inconnu'}`);
   return jsonError(
     502,
-    `Extraction YouTube échouée : ${hf.error ?? 'inconnu'}. ` +
-      `Réessaie dans quelques minutes ou importe un fichier audio à la place.`,
+    `Extraction YouTube échouée. ${parts.join(' / ')}. ` +
+      `Astuce : convertis ton lien sur cobalt.tools puis charge le MP3.`,
   );
 }
 
@@ -118,8 +157,18 @@ interface BackendErr {
 }
 type BackendResult = BackendOk | BackendErr;
 
-async function tryHfSpace(ytUrl: string): Promise<BackendResult> {
-  const endpoint = `${HF_SPACE_BASE}/youtube-audio?url=${encodeURIComponent(ytUrl)}`;
+/**
+ * Hit any backend that exposes the same `/youtube-audio?url=…` contract
+ * as our HF Space (FastAPI + yt-dlp). Used both for the HF Space and for
+ * an optional self-hosted backend (set via OMNITAB_YT_BACKEND_URL env).
+ *
+ * The `baseUrl` should NOT have a trailing slash. We append the path.
+ */
+async function tryBackend(
+  baseUrl: string,
+  ytUrl: string,
+): Promise<BackendResult> {
+  const endpoint = `${baseUrl}/youtube-audio?url=${encodeURIComponent(ytUrl)}`;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), HF_TIMEOUT_MS);
 
@@ -214,7 +263,7 @@ function streamWithMeta(
   body: ReadableStream<Uint8Array>,
   contentType: string,
   title: string,
-  source: 'hf-space',
+  source: 'hf-space' | 'custom',
 ): Response {
   // Sanitize title for HTTP header — ASCII only.
   const safeTitle =

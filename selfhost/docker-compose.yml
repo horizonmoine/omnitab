@@ -1,0 +1,54 @@
+# OmniTab YT-extraction backend — self-hosted edition.
+#
+# Deploys the SAME container as our HuggingFace Space (hf-space/) onto your
+# own VPS. Use this when YouTube has blocked HF Space's shared IPs — your
+# VPS gets its own IP, often unblocked.
+#
+# IMPORTANT REALITY CHECK: this only solves the YouTube issue if the IP
+# of your VPS is NOT in YouTube's blocked datacenter ranges. Big providers
+# (Oracle Cloud, Google Cloud, AWS) are heavily abused and frequently
+# blocked. Smaller providers (Hetzner, Contabo, BuyVM, RackNerd) work
+# better. There's no guarantee — try and check.
+#
+# To deploy:
+#   1. SSH into your VPS
+#   2. git clone https://github.com/horizonmoine/omnitab.git
+#   3. cd omnitab/selfhost
+#   4. docker compose up -d
+#   5. Visit http://<your-vps-ip>:8000/health to confirm
+#   6. Wire up HTTPS (see README.md — Cloudflare Tunnel recommended)
+#   7. Set OMNITAB_YT_BACKEND_URL on Vercel pointing at your URL
+
+services:
+  omnitab-yt:
+    # Use the existing hf-space/ Dockerfile as the build context — keeps
+    # one source of truth for the FastAPI + yt-dlp app. Bumping the
+    # YTDLP_CACHE_BUST arg below forces a fresh `pip install --upgrade
+    # yt-dlp` on the next `docker compose up --build`.
+    build:
+      context: ../hf-space
+      dockerfile: Dockerfile
+      args:
+        YTDLP_CACHE_BUST: ${YTDLP_CACHE_BUST:-2026-04-25-selfhost}
+    container_name: omnitab-yt
+    restart: unless-stopped
+    ports:
+      # Expose on host port 8000 by default. Override with PORT env if 8000
+      # is already taken on your VPS. Internal port stays 7860 (the HF
+      # Space convention — don't change unless you also patch the Dockerfile).
+      - "${PORT:-8000}:7860"
+    environment:
+      # CORS: allow any origin. Vercel proxy is the only legitimate caller
+      # but we keep this open so you can also test from the browser.
+      OMNITAB_CORS_ORIGINS: "*"
+      # Hard caps — match the HF Space defaults.
+      OMNITAB_MAX_UPLOAD_MB: "50"
+      OMNITAB_YT_MAX_DURATION_S: "600"
+    # Healthcheck so docker reports "unhealthy" if FastAPI dies.
+    # The /health endpoint is fast (just torch version + device info).
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:7860/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 60s

@@ -174,7 +174,12 @@ export function Transcriber({
       toast.success(`Audio YouTube récupéré (${(blob.size / 1024 / 1024).toFixed(1)} MB)`);
       setYtUrl('');
     } catch (err) {
-      toast.error((err as Error).message);
+      // Most YT failures hit YouTube's anti-bot wall on cloud IPs (see
+      // the <details> block in the JSX). Append a nudge to the toast so
+      // users find the workaround without needing to scroll/scan the page.
+      toast.error(
+        `${(err as Error).message} — astuce : convertis ton lien sur cobalt.tools puis charge le MP3.`,
+      );
     } finally {
       setYtFetching(false);
     }
@@ -652,7 +657,14 @@ export function Transcriber({
           className="block w-full max-w-md text-amp-text file:bg-amp-accent file:hover:bg-amp-accent-hover file:text-amp-bg file:font-bold file:px-4 file:py-2 file:rounded file:border-0 file:cursor-pointer file:mr-3"
         />
 
-        {/* YouTube import — requires the HF Space backend */}
+        {/* YouTube import — requires the HF Space backend.
+            NOTE: as of April 2026 YouTube actively blocks the HF Space's
+            shared-IP TLS handshake (SSL: UNEXPECTED_EOF), so this path
+            fails *most of the time* on free HF infra. We keep it here
+            because (a) it works when YouTube's anti-bot sleeps, and
+            (b) self-hosters with their own backend (see vps/) get a
+            reliable fast path. The collapsible panel below documents
+            the always-works browser workaround for everyone else. */}
         <div className="mt-3 max-w-md">
           <div className="text-xs text-amp-muted mb-1">
             Ou coller une URL YouTube (max 10 min) :
@@ -692,6 +704,53 @@ export function Transcriber({
               </Button>
             </div>
           )}
+
+          {/* Always-works fallback. YouTube blocks our cloud backend at the
+              TLS layer, but a real browser's TLS fingerprint isn't blocked,
+              so a manual converter (cobalt.tools' web UI, run inside the
+              user's browser) reliably gets the MP3. Two clicks instead of
+              one — annoying but it always works. Collapsed by default so
+              users who succeed never see it. */}
+          <details className="mt-2 rounded border border-amp-accent/30 bg-amp-accent/5 px-3 py-2 text-xs">
+            <summary className="cursor-pointer font-semibold text-amp-accent">
+              💡 L'import YouTube a échoué ? Clique pour la solution
+            </summary>
+            <div className="mt-2 space-y-2 text-amp-muted">
+              <p>
+                YouTube bloque les serveurs cloud (notre backend) au niveau
+                TLS depuis 2025 — c'est indépendant de notre code. Un
+                convertisseur lancé dans <em>ton</em> navigateur fonctionne
+                toujours, parce que ton navigateur a une vraie empreinte TLS.
+              </p>
+              <ol className="ml-4 list-decimal space-y-1">
+                <li>
+                  Ouvre{' '}
+                  <a
+                    href="https://cobalt.tools"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-amp-accent underline hover:no-underline"
+                  >
+                    cobalt.tools
+                  </a>{' '}
+                  dans un nouvel onglet
+                </li>
+                <li>
+                  Colle ton URL YouTube → choisis « Audio » → format MP3
+                </li>
+                <li>Télécharge le fichier MP3 obtenu (~10s)</li>
+                <li>
+                  Reviens ici et utilise « Choose File » ci-dessus pour
+                  charger le MP3
+                </li>
+              </ol>
+              <p className="text-amp-muted/80">
+                Le reste du pipeline (Demucs + basic-pitch) s'exécute sur
+                notre backend comme d'habitude. Tu n'as qu'à contourner
+                l'étape YouTube.
+              </p>
+            </div>
+          </details>
         </div>
 
         {file && (
