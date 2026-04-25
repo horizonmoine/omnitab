@@ -7,13 +7,19 @@
  *
  *   1. HF Space `/youtube-audio` (yt-dlp on our own infra). Hit first
  *      because it's *ours* — predictable rate limits, our 10-min cap.
- *   2. Cobalt API (https://api.cobalt.tools) — public, open-source, free.
- *      Used when HF Space is sleeping, yt-dlp is broken (YouTube cipher
- *      rotation), or any other 5xx. Cobalt has its own rate limits which
- *      kick in for a personal-scale app like this only under heavy use.
+ *   2. Piped (https://github.com/TeamPiped/Piped) — open-source, no-auth
+ *      alternative front-end to YouTube. Used when HF Space is sleeping
+ *      or yt-dlp is broken (YouTube cipher rotation). We try a hardcoded
+ *      list of public instances and take the first that responds — the
+ *      community-run instances rotate and die regularly, so a single one
+ *      is unsafe.
+ *
+ *      We previously used Cobalt (api.cobalt.tools) but as of late 2025
+ *      it requires a JWT obtained via a Cloudflare Turnstile challenge —
+ *      impractical from a serverless function with no browser context.
  *
  * Title is fetched in parallel via YouTube's anonymous oEmbed endpoint so
- * we surface a friendly filename even when Cobalt's response doesn't
+ * we surface a friendly filename even when Piped's response doesn't
  * carry metadata. The `X-Omnitab-Source` response header tells you which
  * backend served the audio (handy for debugging).
  *
@@ -27,17 +33,32 @@ export const config = { runtime: 'edge' };
 // ── Backend endpoints ────────────────────────────────────────────────────
 
 const HF_SPACE_BASE = 'https://horizonmoine30-omnitab-demucs.hf.space';
-const COBALT_API = 'https://api.cobalt.tools/';
+
+// Public Piped instances. Order = priority (we try them in sequence and
+// return the first that responds with a valid audio stream). Update this
+// list when an instance starts 5xx-ing for weeks — the canonical health
+// dashboard is https://piped-instances.kavin.rocks/.
+const PIPED_INSTANCES = [
+  'https://pipedapi.kavin.rocks',
+  'https://pipedapi.adminforge.de',
+  'https://piapi.ggtyler.dev',
+  'https://pipedapi.r4fo.com',
+  'https://pipedapi.leptons.xyz',
+];
 
 // ── Timeouts ─────────────────────────────────────────────────────────────
 //
 // HF_TIMEOUT_MS is short on purpose: a *warm* HF Space returns yt-dlp
 // output in 2-4s. If we don't hear back in 12s, the Space is either
 // sleeping (cold start = 30-60s) or yt-dlp is hanging — both cases we
-// want to bail out of and try Cobalt instead. The user's PWA already
+// want to bail out of and try Piped instead. The user's PWA already
 // has a "Réveiller le backend" button if they really want HF awake.
 const HF_TIMEOUT_MS = 12_000;
-const COBALT_TIMEOUT_MS = 30_000;
+// Per-Piped-instance budget. Five instances × 8s = 40s worst case for
+// metadata lookups — well under the Vercel function 300s cap. The same
+// AbortController governs the audio fetch from Google's CDN, so the
+// budget covers the full per-instance round-trip.
+const PIPED_TIMEOUT_MS = 8_000;
 const OEMBED_TIMEOUT_MS = 5_000;
 
 // Loose YouTube URL guard. We pass the URL straight to the backends so
@@ -74,11 +95,13 @@ export default async function handler(request: Request): Promise<Response> {
     return streamWithMeta(hf.body, hf.contentType, title, 'hf-space');
   }
 
-  // ── Fall back to Cobalt ───────────────────────────────────────────────
-  const cob = await tryCobalt(ytUrl);
-  if (cob.ok) {
-    const title = (await titlePromise) ?? 'YouTube audio';
-    return streamWithMeta(cob.body, cob.contentType, title, 'cobalt');
+  // ── Fall back to Piped ────────────────────────────────────────────────
+  const piped = await tryPiped(ytUrl);
+  if (piped.ok) {
+    // Prefer oEmbed's title when available (more consistent formatting),
+    // fall back to whatever Piped returned, then a generic name.
+    const title = (await titlePromise) ?? piped.title ?? 'YouTube audio';
+    return streamWithMeta(piped.body, piped.contentType, title, 'piped');
   }
 
   // Both failed. Surface a single error message that mentions both attempts
@@ -86,7 +109,8 @@ export default async function handler(request: Request): Promise<Response> {
   return jsonError(
     502,
     `Aucun extracteur YouTube n'a répondu. ` +
-      `HF Space: ${hf.error ?? 'inconnu'}. Cobalt: ${cob.error ?? 'inconnu'}.`,
+      `HF Space: ${hf.error ?? 'inconnu'}. Piped: ${piped.error ?? 'inconnu'}. ` +
+      `Réessaie dans quelques minutes ou importe un fichier audio à la place.`,
   );
 }
 
@@ -142,91 +166,139 @@ async function tryHfSpace(ytUrl: string): Promise<BackendResult> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Cobalt attempt
+// Piped attempt
 // ─────────────────────────────────────────────────────────────────────────
 //
-// Cobalt v10 contract (current as of 2026):
-//   POST https://api.cobalt.tools/
-//   Body : { url, downloadMode: "audio", audioFormat: "mp3", audioBitrate }
-//   Reply: { status: "tunnel" | "redirect" | "error" | "rate-limit",
-//            url?: string, error?: { code, context } }
+// Piped exposes a JSON view of YouTube metadata at:
+//   GET <instance>/streams/<videoId>
+//   Reply: { title, uploader, audioStreams: [{ url, mimeType, bitrate, ... }] }
 //
-// "tunnel" → fetch the URL on Cobalt's infra, get the audio stream.
-// "redirect" → fetch a third-party CDN URL (e.g. YouTube directly). Same.
-// "error" / "rate-limit" → bubble up the error code so the user knows
-//   to retry / use the file picker.
+// We try the public instances in PIPED_INSTANCES in order. First success
+// wins — the audio stream URL is a direct googlevideo.com CDN link that
+// we re-stream through our function so the PWA gets a stable connection
+// even if the underlying CDN URL would expire.
+//
+// Codec note: Piped's audioStreams are usually Opus-in-WebM or AAC-in-M4A,
+// not MP3. The PWA's downstream consumers (Demucs/torchaudio, basic-pitch
+// via Web Audio decodeAudioData) handle both fine, so we don't transcode.
 
-async function tryCobalt(ytUrl: string): Promise<BackendResult> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), COBALT_TIMEOUT_MS);
+interface PipedAudioStream {
+  url: string;
+  mimeType: string;
+  codec: string;
+  bitrate: number;
+}
 
+interface PipedStreamsResponse {
+  title?: string;
+  uploader?: string;
+  duration?: number;
+  audioStreams?: PipedAudioStream[];
+}
+
+/** Pull the YouTube video id out of any youtube.com / youtu.be URL. */
+function extractYoutubeId(ytUrl: string): string | null {
   try {
-    const cobReq = await fetch(COBALT_API, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        Accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        url: ytUrl,
-        downloadMode: 'audio',
-        audioFormat: 'mp3',
-        audioBitrate: '128',
-      }),
-    });
+    const u = new URL(ytUrl);
+    if (u.hostname.includes('youtu.be')) {
+      // youtu.be/<id>?... — strip leading slash, take first path segment.
+      const id = u.pathname.split('/').filter(Boolean)[0];
+      return id || null;
+    }
+    // youtube.com/watch?v=<id> is by far the common form. shorts/<id> and
+    // embed/<id> are also worth handling — bail through the path parser.
+    const v = u.searchParams.get('v');
+    if (v) return v;
+    const segs = u.pathname.split('/').filter(Boolean);
+    if (segs[0] === 'shorts' || segs[0] === 'embed') return segs[1] ?? null;
+    return null;
+  } catch {
+    return null;
+  }
+}
 
-    if (!cobReq.ok) {
-      const detail = await cobReq.text().catch(() => '');
+async function tryPiped(ytUrl: string): Promise<BackendResult> {
+  const videoId = extractYoutubeId(ytUrl);
+  if (!videoId) {
+    return { ok: false, error: 'piped: id YouTube non parsable' };
+  }
+
+  // Track the last instance error so the eventual 502 message has signal
+  // about *why* every instance failed (helpful for "all rate-limited" vs
+  // "all timed out" vs "404 — bad video id").
+  let lastErr = 'aucune instance Piped joignable';
+
+  for (const instance of PIPED_INSTANCES) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), PIPED_TIMEOUT_MS);
+
+    try {
+      const metaRes = await fetch(`${instance}/streams/${videoId}`, {
+        signal: controller.signal,
+        headers: { Accept: 'application/json' },
+      });
+      if (!metaRes.ok) {
+        lastErr = `${shortHost(instance)} HTTP ${metaRes.status}`;
+        continue;
+      }
+      const meta = (await metaRes.json()) as PipedStreamsResponse;
+      if (!meta.audioStreams || meta.audioStreams.length === 0) {
+        lastErr = `${shortHost(instance)}: pas de flux audio`;
+        continue;
+      }
+
+      // Pick the highest-bitrate audio stream. Usually Opus 160kbps.
+      // (Bitrate is in bits/s in Piped's response.)
+      const best = [...meta.audioStreams].sort(
+        (a, b) => b.bitrate - a.bitrate,
+      )[0];
+
+      // Fetch the actual audio bytes from the CDN URL Piped resolved.
+      // Same controller → if the CDN hangs we time out at the same budget
+      // we used for the metadata call.
+      const audio = await fetch(best.url, { signal: controller.signal });
+      if (!audio.ok || !audio.body) {
+        lastErr = `${shortHost(instance)} CDN HTTP ${audio.status}`;
+        continue;
+      }
+
+      // Build the title in the same "{author} - {title}" shape oEmbed uses
+      // so the X-Omnitab-Title header is consistent across both backends.
+      const title =
+        meta.uploader && meta.title
+          ? `${meta.uploader} - ${meta.title}`
+          : meta.title;
+
       return {
-        ok: false,
-        error: `cobalt HTTP ${cobReq.status}${detail ? ` (${truncate(detail, 200)})` : ''}`,
+        ok: true,
+        body: audio.body,
+        contentType:
+          audio.headers.get('Content-Type') ??
+          best.mimeType ??
+          'audio/webm',
+        title,
       };
+    } catch (err) {
+      const name = (err as Error).name;
+      lastErr =
+        name === 'AbortError'
+          ? `${shortHost(instance)} timeout ${PIPED_TIMEOUT_MS / 1000}s`
+          : `${shortHost(instance)}: ${(err as Error).message}`;
+      // continue to next instance
+    } finally {
+      clearTimeout(timer);
     }
+  }
 
-    const data = (await cobReq.json()) as {
-      status?: string;
-      url?: string;
-      error?: { code?: string };
-    };
+  return { ok: false, error: lastErr };
+}
 
-    if (data.status === 'error' || data.status === 'rate-limit') {
-      return {
-        ok: false,
-        error: `cobalt ${data.status}${data.error?.code ? ` (${data.error.code})` : ''}`,
-      };
-    }
-    if (data.status !== 'tunnel' && data.status !== 'redirect') {
-      return { ok: false, error: `cobalt status inattendu: ${data.status ?? 'absent'}` };
-    }
-    if (!data.url) {
-      return { ok: false, error: 'cobalt: url manquante' };
-    }
-
-    // Fetch the actual audio. Cobalt's tunnel URLs are short-lived (~minutes)
-    // so we proxy the bytes through immediately rather than handing the URL
-    // to the PWA — the user's network might be slower than ours, and the
-    // tunnel could expire mid-download.
-    const audio = await fetch(data.url, { signal: controller.signal });
-    if (!audio.ok || !audio.body) {
-      return {
-        ok: false,
-        error: `cobalt tunnel HTTP ${audio.status}`,
-      };
-    }
-    return {
-      ok: true,
-      body: audio.body,
-      contentType: audio.headers.get('Content-Type') ?? 'audio/mpeg',
-    };
-  } catch (err) {
-    const name = (err as Error).name;
-    if (name === 'AbortError') {
-      return { ok: false, error: `cobalt timeout ${COBALT_TIMEOUT_MS / 1000}s` };
-    }
-    return { ok: false, error: `cobalt: ${(err as Error).message}` };
-  } finally {
-    clearTimeout(timer);
+/** Helper: trim https:// + path off so error messages stay short. */
+function shortHost(instanceUrl: string): string {
+  try {
+    return new URL(instanceUrl).hostname.replace(/^pipedapi\./, '');
+  } catch {
+    return instanceUrl;
   }
 }
 
@@ -262,7 +334,7 @@ function streamWithMeta(
   body: ReadableStream<Uint8Array>,
   contentType: string,
   title: string,
-  source: 'hf-space' | 'cobalt',
+  source: 'hf-space' | 'piped',
 ): Response {
   // Sanitize title for HTTP header — ASCII only.
   const safeTitle =

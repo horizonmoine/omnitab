@@ -192,10 +192,17 @@ export async function separateStem(
 export async function fetchYoutubeAudio(
   url: string,
 ): Promise<{ blob: Blob; title: string }> {
-  const override = (
-    globalThis as { __OMNITAB_DEMUCS_URL__?: string }
-  ).__OMNITAB_DEMUCS_URL__;
-  const useProxy = !import.meta.env.DEV && !override?.trim();
+  // In prod, ALWAYS route through the Vercel proxy — even when the user has
+  // configured a custom Demucs URL in Settings. The proxy is the only place
+  // where the multi-backend fallback chain (HF Space → Piped) lives, and we
+  // can't replicate that client-side without re-implementing all of it. The
+  // custom backend is still hit directly for the heavy `/separate-stream`
+  // call (see separateStem above) — only YT extraction is centralised here.
+  //
+  // In dev (`vite dev`), Vercel functions don't run, so we bypass the proxy
+  // and talk to whatever backend is configured. Self-hosters hacking on
+  // this locally need their own /youtube-audio endpoint up.
+  const useProxy = !import.meta.env.DEV;
 
   let endpoint: string;
   if (useProxy) {
