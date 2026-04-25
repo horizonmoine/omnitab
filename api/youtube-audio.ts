@@ -48,16 +48,25 @@ const PIPED_INSTANCES = [
 
 // ── Timeouts ─────────────────────────────────────────────────────────────
 //
-// HF_TIMEOUT_MS is short on purpose: a *warm* HF Space returns yt-dlp
-// output in 2-4s. If we don't hear back in 12s, the Space is either
-// sleeping (cold start = 30-60s) or yt-dlp is hanging — both cases we
-// want to bail out of and try Piped instead. The user's PWA already
-// has a "Réveiller le backend" button if they really want HF awake.
-const HF_TIMEOUT_MS = 12_000;
-// Per-Piped-instance budget. Five instances × 8s = 40s worst case for
-// metadata lookups — well under the Vercel function 300s cap. The same
-// AbortController governs the audio fetch from Google's CDN, so the
-// budget covers the full per-instance round-trip.
+// HF_TIMEOUT_MS has to be LONGER than yt-dlp's own internal retry budget
+// inside the HF Space. yt-dlp is configured there with retries=5 and
+// socket_timeout=20s — i.e. it can spend ~60-80s exhausting retries
+// before giving the proxy back a real verdict. If we time out at 12s,
+// we *never* see whether the request actually succeeded, and we fall
+// through to Piped instead — even when the next 30s would have brought
+// back working audio. 75s is the sweet spot: longer than yt-dlp's worst
+// case, shorter than Vercel's 300s function cap, and shorter than the
+// browser's default fetch timeout so the PWA stays responsive.
+//
+// Cold start: HF Spaces wake within 30-60s. With a 75s budget we usually
+// catch them awake on the second user attempt — the first one might
+// still time out, which is acceptable because the user has a separate
+// "Réveiller le backend" button for explicit cold starts.
+const HF_TIMEOUT_MS = 75_000;
+// Per-Piped-instance budget. Piped is now an emergency-only fallback —
+// the public instances list collapsed in 2024-2025 under YouTube's
+// anti-bot push, so most attempts will fail fast. Each instance gets
+// 8s before we move on; with 5 instances that's 40s worst case.
 const PIPED_TIMEOUT_MS = 8_000;
 const OEMBED_TIMEOUT_MS = 5_000;
 
@@ -139,7 +148,36 @@ async function tryHfSpace(ytUrl: string): Promise<BackendResult> {
     const r = await fetch(endpoint, { signal: controller.signal });
     if (!r.ok) {
       // Read error body so the eventual 502 message has real signal in it.
-      const detail = await r.text().catch(() => '');
+      // The HF Space replies with `{ "detail": "..." }` for HTTPException —
+      // unwrap that so we don't show raw JSON to the user further down.
+      const raw = await r.text().catch(() => '');
+      let detail = raw;
+      try {
+        const parsed = JSON.parse(raw) as { detail?: string };
+        if (parsed.detail) detail = parsed.detail;
+      } catch {
+        // not JSON, keep the raw text
+      }
+      // yt-dlp prints "Confirm you are on the latest version using yt-dlp -U"
+      // when it gives up — surface that as actionable advice for the dev who
+      // owns the HF Space (probably us). Detection mirrors the HF Space's
+      // own hint logic in app.py to stay consistent.
+      const lower = detail.toLowerCase();
+      const looksOutOfDate =
+        lower.includes('ssl') ||
+        lower.includes('eof') ||
+        lower.includes('sign in') ||
+        lower.includes('latest version') ||
+        lower.includes('please report this issue');
+      if (looksOutOfDate) {
+        return {
+          ok: false,
+          error:
+            `HF Space yt-dlp obsolète — pousse un nouveau commit sur le HF Space ` +
+            `(touch hf-space/Dockerfile YTDLP_CACHE_BUST). ` +
+            `Détail: ${truncate(detail, 200)}`,
+        };
+      }
       return {
         ok: false,
         error: `HTTP ${r.status}${detail ? ` (${truncate(detail, 200)})` : ''}`,
