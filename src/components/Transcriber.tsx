@@ -756,12 +756,17 @@ export function Transcriber({
                   <li>
                     Lance dans un terminal :{' '}
                     <code className="block mt-1 rounded bg-amp-bg/50 p-2 font-mono text-amp-text">
-                      yt-dlp -x --audio-format mp3 "URL_YOUTUBE_ICI"
+                      yt-dlp -f bestaudio "URL_YOUTUBE_ICI"
                     </code>
+                    <span className="block mt-1 text-amp-muted/80">
+                      (Pas besoin d'ffmpeg avec cette forme — tu obtiens
+                      un .m4a ou .webm que Demucs et basic-pitch
+                      décodent sans problème.)
+                    </span>
                   </li>
                   <li>
-                    Tu obtiens un MP3 dans le dossier courant — clique
-                    « Choose File » ci-dessus pour le charger
+                    Le fichier audio apparaît dans le dossier courant —
+                    clique « Choose File » ci-dessus pour le charger
                   </li>
                 </ol>
               </div>
