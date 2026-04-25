@@ -11,9 +11,13 @@ einops>=0.7.0
 diffq>=0.2.4
 # yt-dlp must be kept current — YouTube rotates their player API roughly
 # every 2–3 months and old versions hit "SSL: UNEXPECTED_EOF" / "Sign in
-# to confirm you're not a bot". Bump this floor whenever the HF Space
-# starts returning 500s on /youtube-audio. The Dockerfile also runs an
-# explicit `pip install --upgrade yt-dlp` step so we always get the most
-# recent release published before the build, even when the Docker layer
-# cache would otherwise pin us to a stale version.
-yt-dlp>=2026.4.0
+# to confirm you're not a bot". The Dockerfile runs an explicit
+# `pip install --upgrade yt-dlp` step *after* this requirements pass,
+# which always pulls the latest stable release — so this floor only has
+# to be loose enough to install at all. Don't pin a specific YYYY.MM.DD:
+# yt-dlp's nightly builds are `.dev0` and pip refuses to install dev
+# releases by default, which means a floor like `>=2026.4.0` becomes
+# unsatisfiable until the matching stable lands (HF build = BUILD_ERROR).
+# A loose `>=YYYY.M` floor is safe — month-level pinning matches yt-dlp's
+# actual stable release cadence.
+yt-dlp>=2026.3

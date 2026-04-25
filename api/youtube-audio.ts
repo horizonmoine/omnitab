@@ -1,82 +1,60 @@
 /**
- * Vercel Edge Function — YouTube audio extraction with backend fallback.
+ * Vercel Edge Function — YouTube audio extraction proxy.
  *
- * This is the resilience layer the PWA hits for YouTube → MP3. It tries
- * two completely independent extractors and returns whichever responds
- * first with a valid audio stream:
+ * This is the thin layer between the PWA and the HF Space's `/youtube-audio`
+ * endpoint (yt-dlp on our own infra). It exists to:
  *
- *   1. HF Space `/youtube-audio` (yt-dlp on our own infra). Hit first
- *      because it's *ours* — predictable rate limits, our 10-min cap.
- *   2. Piped (https://github.com/TeamPiped/Piped) — open-source, no-auth
- *      alternative front-end to YouTube. Used when HF Space is sleeping
- *      or yt-dlp is broken (YouTube cipher rotation). We try a hardcoded
- *      list of public instances and take the first that responds — the
- *      community-run instances rotate and die regularly, so a single one
- *      is unsafe.
+ *   - Add CORS headers so the PWA can hit it from a browser.
+ *   - Surface clean French error messages instead of raw yt-dlp stack traces.
+ *   - Detect "yt-dlp out of date" failure patterns and rewrite the error
+ *     into actionable advice (rebuild the HF Space).
+ *   - Fetch the YouTube title in parallel via oEmbed so the PWA gets a
+ *     friendly filename (X-Omnitab-Title header) even if HF Space's title
+ *     extraction is incomplete.
  *
- *      We previously used Cobalt (api.cobalt.tools) but as of late 2025
- *      it requires a JWT obtained via a Cloudflare Turnstile challenge —
- *      impractical from a serverless function with no browser context.
+ * Runtime: Edge. We keep this on Edge despite its 25s hard cap because:
+ *   - Vite-style /api/*.ts files use `(request: Request) => Response`,
+ *     which only Edge supports natively. Node.js runtime requires the
+ *     `(req, res)` Express-style shape from @vercel/node — different code
+ *     path, different bug surface. (Next.js App Router doesn't have this
+ *     constraint, but this project is Vite + raw Vercel Functions.)
+ *   - yt-dlp on a *healthy* HF Space typically responds in 4-8s for a
+ *     normal-length video, well within the 25s budget. The "happy path"
+ *     dominates — when yt-dlp is broken the user has a much bigger
+ *     problem to fix anyway (rebuild the HF Space).
  *
- * Title is fetched in parallel via YouTube's anonymous oEmbed endpoint so
- * we surface a friendly filename even when Piped's response doesn't
- * carry metadata. The `X-Omnitab-Source` response header tells you which
- * backend served the audio (handy for debugging).
- *
- * Runtime: Fluid Compute (Node.js). Migrated from Edge in 2026-04 because
- * Edge has a hard 25s execution cap that's shorter than yt-dlp's own
- * retry budget on the HF Space (~60-80s) — we'd FUNCTION_INVOCATION_TIMEOUT
- * before yt-dlp had even decided whether the request would work. Node.js
- * Fluid Compute gives 300s by default and supports the same Web Fetch API
- * `(request: Request) => Response` shape as Edge, so the only change is
- * dropping the runtime config below. The other /api/*.ts handlers stay on
- * Edge — they're fast (Songsterr API + small file scrapes) and benefit
- * from the sub-millisecond cold start there.
- *
- * Per-route maxDuration is declared in vercel.json so we get the full 300s
- * budget without needing a Pro plan upgrade. Active CPU pricing means we
- * only pay for the wall-clock time yt-dlp is actually computing, not the
- * long awaits on HF Space.
+ * History note: a previous fallback to Piped + a Fluid Compute migration
+ * were tried and reverted. Piped's public-instance ecosystem collapsed
+ * under YouTube's anti-bot push (api.piped.private.coffee returns empty
+ * audioStreams now), and Fluid Compute on Vite needs the (req, res)
+ * Express signature — the (Request) => Response shape crashes with
+ * FUNCTION_INVOCATION_FAILED. Both bumps are listed in git log if
+ * someone wants to revisit them when the platform changes.
  */
+
+export const config = { runtime: 'edge' };
 
 // ── Backend endpoints ────────────────────────────────────────────────────
 
 const HF_SPACE_BASE = 'https://horizonmoine30-omnitab-demucs.hf.space';
 
-// Public Piped instances. Order = priority (we try them in sequence and
-// return the first that responds with a valid audio stream). Update this
-// list when an instance starts 5xx-ing for weeks — the canonical health
-// dashboard is https://piped-instances.kavin.rocks/.
-const PIPED_INSTANCES = [
-  'https://pipedapi.kavin.rocks',
-  'https://pipedapi.adminforge.de',
-  'https://piapi.ggtyler.dev',
-  'https://pipedapi.r4fo.com',
-  'https://pipedapi.leptons.xyz',
-];
-
 // ── Timeouts ─────────────────────────────────────────────────────────────
 //
-// HF_TIMEOUT_MS has to be LONGER than yt-dlp's own internal retry budget
-// inside the HF Space. yt-dlp is configured there with retries=5 and
-// socket_timeout=20s — i.e. it can spend ~60-80s exhausting retries
-// before giving the proxy back a real verdict. If we time out at 12s,
-// we *never* see whether the request actually succeeded, and we fall
-// through to Piped instead — even when the next 30s would have brought
-// back working audio. 75s is the sweet spot: longer than yt-dlp's worst
-// case, shorter than Vercel's 300s function cap, and shorter than the
-// browser's default fetch timeout so the PWA stays responsive.
+// HF_TIMEOUT_MS has to fit within Edge's 25s hard cap (FUNCTION_INVOCATION_TIMEOUT
+// kicks in at ~25s and is NOT configurable on Edge). 22s leaves 3s for
+// CORS/streaming overhead. yt-dlp on a healthy HF Space responds in 4-8s
+// for normal videos so this is plenty for the success path. If yt-dlp
+// itself is broken (SSL EOF, sign-in walls, version skew), it'll typically
+// error out faster than 22s — its first retry usually fails immediately
+// when the underlying YouTube response is malformed.
 //
-// Cold start: HF Spaces wake within 30-60s. With a 75s budget we usually
-// catch them awake on the second user attempt — the first one might
-// still time out, which is acceptable because the user has a separate
-// "Réveiller le backend" button for explicit cold starts.
-const HF_TIMEOUT_MS = 75_000;
-// Per-Piped-instance budget. Piped is now an emergency-only fallback —
-// the public instances list collapsed in 2024-2025 under YouTube's
-// anti-bot push, so most attempts will fail fast. Each instance gets
-// 8s before we move on; with 5 instances that's 40s worst case.
-const PIPED_TIMEOUT_MS = 8_000;
+// If HF Space is sleeping (cold start = 30-60s), the user's first attempt
+// will time out at 22s. The PWA shows a "Réveiller le backend" button on
+// the Settings page for explicit cold starts.
+const HF_TIMEOUT_MS = 22_000;
+// oEmbed runs in parallel with the audio fetch, so its timeout doesn't
+// add to the wall-clock budget — it just bounds how long we wait for the
+// title before falling back to "YouTube audio".
 const OEMBED_TIMEOUT_MS = 5_000;
 
 // Loose YouTube URL guard. We pass the URL straight to the backends so
@@ -106,28 +84,20 @@ export default async function handler(request: Request): Promise<Response> {
   // path and we want it ready by the time we start streaming bytes back.
   const titlePromise = fetchOembedTitle(ytUrl);
 
-  // ── Try HF Space first ────────────────────────────────────────────────
+  // ── HF Space (only backend) ──────────────────────────────────────────
   const hf = await tryHfSpace(ytUrl);
   if (hf.ok) {
     const title = (await titlePromise) ?? hf.title ?? 'YouTube audio';
     return streamWithMeta(hf.body, hf.contentType, title, 'hf-space');
   }
 
-  // ── Fall back to Piped ────────────────────────────────────────────────
-  const piped = await tryPiped(ytUrl);
-  if (piped.ok) {
-    // Prefer oEmbed's title when available (more consistent formatting),
-    // fall back to whatever Piped returned, then a generic name.
-    const title = (await titlePromise) ?? piped.title ?? 'YouTube audio';
-    return streamWithMeta(piped.body, piped.contentType, title, 'piped');
-  }
-
-  // Both failed. Surface a single error message that mentions both attempts
-  // so the PWA can show something more useful than "HTTP 500".
+  // HF failed — surface its error verbatim. tryHfSpace already detects
+  // the common "yt-dlp out of date" pattern and rewrites it into an
+  // actionable hint. We also nudge the user toward the file-upload
+  // alternative since YT extraction is the only flaky step in the pipeline.
   return jsonError(
     502,
-    `Aucun extracteur YouTube n'a répondu. ` +
-      `HF Space: ${hf.error ?? 'inconnu'}. Piped: ${piped.error ?? 'inconnu'}. ` +
+    `Extraction YouTube échouée : ${hf.error ?? 'inconnu'}. ` +
       `Réessaie dans quelques minutes ou importe un fichier audio à la place.`,
   );
 }
@@ -213,143 +183,6 @@ async function tryHfSpace(ytUrl: string): Promise<BackendResult> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Piped attempt
-// ─────────────────────────────────────────────────────────────────────────
-//
-// Piped exposes a JSON view of YouTube metadata at:
-//   GET <instance>/streams/<videoId>
-//   Reply: { title, uploader, audioStreams: [{ url, mimeType, bitrate, ... }] }
-//
-// We try the public instances in PIPED_INSTANCES in order. First success
-// wins — the audio stream URL is a direct googlevideo.com CDN link that
-// we re-stream through our function so the PWA gets a stable connection
-// even if the underlying CDN URL would expire.
-//
-// Codec note: Piped's audioStreams are usually Opus-in-WebM or AAC-in-M4A,
-// not MP3. The PWA's downstream consumers (Demucs/torchaudio, basic-pitch
-// via Web Audio decodeAudioData) handle both fine, so we don't transcode.
-
-interface PipedAudioStream {
-  url: string;
-  mimeType: string;
-  codec: string;
-  bitrate: number;
-}
-
-interface PipedStreamsResponse {
-  title?: string;
-  uploader?: string;
-  duration?: number;
-  audioStreams?: PipedAudioStream[];
-}
-
-/** Pull the YouTube video id out of any youtube.com / youtu.be URL. */
-function extractYoutubeId(ytUrl: string): string | null {
-  try {
-    const u = new URL(ytUrl);
-    if (u.hostname.includes('youtu.be')) {
-      // youtu.be/<id>?... — strip leading slash, take first path segment.
-      const id = u.pathname.split('/').filter(Boolean)[0];
-      return id || null;
-    }
-    // youtube.com/watch?v=<id> is by far the common form. shorts/<id> and
-    // embed/<id> are also worth handling — bail through the path parser.
-    const v = u.searchParams.get('v');
-    if (v) return v;
-    const segs = u.pathname.split('/').filter(Boolean);
-    if (segs[0] === 'shorts' || segs[0] === 'embed') return segs[1] ?? null;
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function tryPiped(ytUrl: string): Promise<BackendResult> {
-  const videoId = extractYoutubeId(ytUrl);
-  if (!videoId) {
-    return { ok: false, error: 'piped: id YouTube non parsable' };
-  }
-
-  // Track the last instance error so the eventual 502 message has signal
-  // about *why* every instance failed (helpful for "all rate-limited" vs
-  // "all timed out" vs "404 — bad video id").
-  let lastErr = 'aucune instance Piped joignable';
-
-  for (const instance of PIPED_INSTANCES) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), PIPED_TIMEOUT_MS);
-
-    try {
-      const metaRes = await fetch(`${instance}/streams/${videoId}`, {
-        signal: controller.signal,
-        headers: { Accept: 'application/json' },
-      });
-      if (!metaRes.ok) {
-        lastErr = `${shortHost(instance)} HTTP ${metaRes.status}`;
-        continue;
-      }
-      const meta = (await metaRes.json()) as PipedStreamsResponse;
-      if (!meta.audioStreams || meta.audioStreams.length === 0) {
-        lastErr = `${shortHost(instance)}: pas de flux audio`;
-        continue;
-      }
-
-      // Pick the highest-bitrate audio stream. Usually Opus 160kbps.
-      // (Bitrate is in bits/s in Piped's response.)
-      const best = [...meta.audioStreams].sort(
-        (a, b) => b.bitrate - a.bitrate,
-      )[0];
-
-      // Fetch the actual audio bytes from the CDN URL Piped resolved.
-      // Same controller → if the CDN hangs we time out at the same budget
-      // we used for the metadata call.
-      const audio = await fetch(best.url, { signal: controller.signal });
-      if (!audio.ok || !audio.body) {
-        lastErr = `${shortHost(instance)} CDN HTTP ${audio.status}`;
-        continue;
-      }
-
-      // Build the title in the same "{author} - {title}" shape oEmbed uses
-      // so the X-Omnitab-Title header is consistent across both backends.
-      const title =
-        meta.uploader && meta.title
-          ? `${meta.uploader} - ${meta.title}`
-          : meta.title;
-
-      return {
-        ok: true,
-        body: audio.body,
-        contentType:
-          audio.headers.get('Content-Type') ??
-          best.mimeType ??
-          'audio/webm',
-        title,
-      };
-    } catch (err) {
-      const name = (err as Error).name;
-      lastErr =
-        name === 'AbortError'
-          ? `${shortHost(instance)} timeout ${PIPED_TIMEOUT_MS / 1000}s`
-          : `${shortHost(instance)}: ${(err as Error).message}`;
-      // continue to next instance
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
-  return { ok: false, error: lastErr };
-}
-
-/** Helper: trim https:// + path off so error messages stay short. */
-function shortHost(instanceUrl: string): string {
-  try {
-    return new URL(instanceUrl).hostname.replace(/^pipedapi\./, '');
-  } catch {
-    return instanceUrl;
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
 // Title via YouTube oEmbed
 // ─────────────────────────────────────────────────────────────────────────
 //
@@ -381,7 +214,7 @@ function streamWithMeta(
   body: ReadableStream<Uint8Array>,
   contentType: string,
   title: string,
-  source: 'hf-space' | 'piped',
+  source: 'hf-space',
 ): Response {
   // Sanitize title for HTTP header — ASCII only.
   const safeTitle =
