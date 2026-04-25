@@ -14,11 +14,14 @@ HF Spaces serves this on port 7860 over HTTPS automatically.
 
 from __future__ import annotations
 
+import gc
+import hashlib
 import io
 import logging
 import os
 import tempfile
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 import torch
@@ -68,6 +71,56 @@ def load_model(name: str):
             _model_cache[name] = model
             log.info("model %s ready (sources=%s)", name, model.sources)
         return _model_cache[name]
+
+
+# ── Per-file separation cache ────────────────────────────────────────────
+#
+# The PWA's "Tout faire" pipeline calls /separate-stream once per stem
+# (vocals, drums, bass, other = 4 calls per song). Without this cache, we'd
+# run the full Demucs separation FOUR times for the same audio — wasting
+# ~9 minutes of CPU time per song AND building up enough memory pressure
+# (Demucs forward + 4 stem WAVs + StreamingResponse buffer) that the 4th
+# call OOM-kills the worker on HF Space CPU Basic (16 GB RAM but shared
+# with other tenants in practice).
+#
+# The cache stores the *full* dict {stem_name: wav_bytes} for each input
+# file, keyed by SHA256(file_bytes) + model_name. The first call computes
+# everything and stores it; subsequent calls for other stems of the same
+# file hit the cache in <100ms.
+#
+# Capacity: MAX=2 entries → ~400 MB worst case (each entry ≈ 4 stems ×
+# 40 MB WAV ≈ 200 MB for a typical 4-min song). LRU eviction so the most
+# recent file's stems stay hot. Lock-protected for thread safety even
+# though FastAPI runs single-worker by default — defensive habit.
+
+_separation_cache: "OrderedDict[str, dict[str, bytes]]" = OrderedDict()
+_separation_cache_lock = threading.Lock()
+_SEPARATION_CACHE_MAX = 2
+
+
+def _cache_get(key: str) -> dict[str, bytes] | None:
+    with _separation_cache_lock:
+        result = _separation_cache.get(key)
+        if result is not None:
+            # LRU touch: move to end so most-recently-used is freshest.
+            _separation_cache.move_to_end(key)
+        return result
+
+
+def _cache_put(key: str, value: dict[str, bytes]) -> None:
+    with _separation_cache_lock:
+        _separation_cache[key] = value
+        _separation_cache.move_to_end(key)
+        # Evict oldest entries if we're over capacity. Force a GC pass
+        # after eviction so the underlying bytes objects (~200 MB each)
+        # actually return to the OS instead of sitting in Python's heap.
+        evicted = False
+        while len(_separation_cache) > _SEPARATION_CACHE_MAX:
+            old_key, _old_value = _separation_cache.popitem(last=False)
+            log.info("separation cache  evict  key=%s", old_key[:16])
+            evicted = True
+        if evicted:
+            gc.collect()
 
 
 # ── Separation core ─────────────────────────────────────────────────────
@@ -205,19 +258,37 @@ def separate_stream(
     omitted to keep the Space lean — the PWA only needs one stem per call.
     """
     data = _validate_upload(file)
-    log.info(
-        "/separate-stream  file=%s  size=%d  stem=%s  model=%s",
-        file.filename,
-        len(data),
-        stem,
-        model,
-    )
 
-    try:
-        stems = separate_audio(data, model)
-    except Exception as exc:
-        log.exception("separation failed")
-        raise HTTPException(500, f"separation failed: {exc}")
+    # Cache key: SHA256 of file bytes + model name. The PWA calls this
+    # endpoint 4× per song (one per stem), and we want all four calls to
+    # hit the same cache entry — so we hash the bytes, not the filename
+    # (different uploads of the same audio collide cleanly, and the same
+    # audio uploaded with a different filename also collides cleanly).
+    cache_key = f"{model}:{hashlib.sha256(data).hexdigest()}"
+
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        log.info(
+            "/separate-stream  cache_HIT  file=%s  stem=%s  model=%s",
+            file.filename,
+            stem,
+            model,
+        )
+        stems = cached
+    else:
+        log.info(
+            "/separate-stream  cache_MISS  file=%s  size=%d  stem=%s  model=%s",
+            file.filename,
+            len(data),
+            stem,
+            model,
+        )
+        try:
+            stems = separate_audio(data, model)
+        except Exception as exc:
+            log.exception("separation failed")
+            raise HTTPException(500, f"separation failed: {exc}")
+        _cache_put(cache_key, stems)
 
     if stem not in stems:
         raise HTTPException(
