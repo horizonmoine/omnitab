@@ -135,15 +135,32 @@ export async function separateStem(
   stem: Stem,
   onProgress?: (p: SeparateProgress) => void,
 ): Promise<Blob> {
-  const baseUrl = getBackendUrl();
-  if (!baseUrl) throw new Error('Aucun backend Demucs configuré (voir Réglages).');
+  // In prod, route through the same-origin Vercel proxy `/api/demucs-stream`.
+  // That proxy forwards the bytes server-side to HF Space, so the user's
+  // browser only sees a request to omnitab-henna.vercel.app — bypassing
+  // antivirus / browser-shield software that intercepts cross-origin POSTs
+  // to less-known domains like *.hf.space and silently fails them with
+  // `net::ERR_FAILED` (only happens in non-incognito modes — those AVs
+  // typically bypass their hooks for InPrivate browsing).
+  //
+  // In dev (`vite dev`), Vercel functions don't run, so we hit the configured
+  // backend directly. Self-hosters running their own /api/* layer can
+  // override the proxy URL via Settings if they want.
+  const useProxy = !import.meta.env.DEV;
+
+  let url: string;
+  if (useProxy) {
+    url = `/api/demucs-stream?stem=${encodeURIComponent(stem)}`;
+  } else {
+    const baseUrl = getBackendUrl();
+    if (!baseUrl) throw new Error('Aucun backend Demucs configuré (voir Réglages).');
+    url = `${baseUrl}/separate-stream?stem=${encodeURIComponent(stem)}`;
+  }
 
   onProgress?.({ progress: 0.05, status: `Envoi au backend Demucs…` });
 
   const form = new FormData();
   form.append('file', file, 'audio.wav');
-
-  const url = `${baseUrl}/separate-stream?stem=${encodeURIComponent(stem)}`;
 
   const res = await fetch(url, {
     method: 'POST',
