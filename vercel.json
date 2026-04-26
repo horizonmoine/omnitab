@@ -1,11 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "vite",
-  "functions": {
-    "api/demucs-stream.ts": {
-      "maxDuration": 240
-    }
-  },
   "headers": [
     {
       "source": "/sw.js",
