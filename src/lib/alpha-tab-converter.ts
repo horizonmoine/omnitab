@@ -53,6 +53,27 @@ function tuningToAlphaTex(tuning: Tuning): string {
 }
 
 /**
+ * Validate a TabNote before we emit it as alphaTex. Returns false (and logs
+ * once) when fret or stringIndex isn't a finite number — a bad note would
+ * render as `:4 NaN.6` and trip AlphaTab's parser with the error
+ * `AT202 Unexpected 'Ident' token. Expected one of following: Number`.
+ *
+ * This guard is cheap insurance against upstream bugs in the Viterbi
+ * tab-placement algorithm where a candidate's stringIndex/fret could be
+ * undefined when the input MIDI lies outside the guitar tessitura on a
+ * non-standard tuning.
+ */
+function isEmittableNote(n: TabNote): boolean {
+  return (
+    Number.isFinite(n.fret) &&
+    Number.isFinite(n.stringIndex) &&
+    n.fret >= 0 &&
+    n.stringIndex >= 0 &&
+    n.stringIndex <= 5
+  );
+}
+
+/**
  * Quantize a time in seconds to the nearest sixteenth-note duration, given
  * a tempo. Returns the alphaTex duration marker (1/2/4/8/16/32).
  */
@@ -91,11 +112,25 @@ export function transcriptionToAlphaTex(
   lines.push(`\\title "${escapeAlphaTex(title)}"`);
   lines.push(`\\subtitle "${escapeAlphaTex(artist)}"`);
   lines.push(`\\tempo ${tempoBpm}`);
-  lines.push(`\\tuning ${tuningStr}`);
+  // Modern alphaTex requires metadata args in parentheses (warning AT301
+  // otherwise — and on some metadata, hard error).
+  lines.push(`\\tuning(${tuningStr})`);
   lines.push(`\\track "Guitar"`);
   lines.push('');
 
-  if (notes.length === 0) {
+  // Drop any malformed notes BEFORE the chord-grouping pass — a single bad
+  // note in a chord would corrupt the entire chord output and AlphaTab
+  // would reject the whole file.
+  const validNotes = notes.filter(isEmittableNote);
+  if (validNotes.length < notes.length) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[alphatex] dropped ${notes.length - validNotes.length} malformed note(s) ` +
+        `(out of ${notes.length}) — likely fret/stringIndex undefined from upstream`,
+    );
+  }
+
+  if (validNotes.length === 0) {
     lines.push(':4 r');
     lines.push('.');
     return lines.join('\n');
@@ -103,8 +138,13 @@ export function transcriptionToAlphaTex(
 
   // Snap note onsets to a 16th-note grid so that near-simultaneous notes
   // collapse into proper chords and micro-rests don't show up between them.
-  const snappedNotes: TabNote[] = notes.map((n) => ({
+  // Also coerce fret to an integer — basic-pitch can produce fractional
+  // pitches that propagate through Viterbi as fractional frets, which
+  // alphaTex's parser doesn't accept (`5.7.6` would be ambiguous).
+  const snappedNotes: TabNote[] = validNotes.map((n) => ({
     ...n,
+    fret: Math.round(n.fret),
+    stringIndex: Math.round(n.stringIndex),
     startTimeSeconds: quantizeToGrid(n.startTimeSeconds, tempoBpm, 16),
   }));
   const chords = groupChords(snappedNotes);

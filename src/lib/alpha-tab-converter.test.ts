@@ -49,10 +49,12 @@ describe('transcriptionToAlphaTex', () => {
     expect(tex).toContain('\\track "Guitar"');
   });
 
-  it('emits standard tuning in high → low order', () => {
+  it('emits standard tuning in high → low order, wrapped in parens', () => {
     const tex = transcriptionToAlphaTex(baseTranscription([tn(5, 0, 64, 0)]));
     // Standard is E2 A2 D3 G3 B3 E4. alphaTex wants high → low: E4 B3 G3 D3 A2 E2.
-    expect(tex).toContain('\\tuning e4 b3 g3 d3 a2 e2');
+    // Modern alphaTex requires metadata args in parentheses (warning AT301
+    // otherwise — the parser was tightened in AlphaTab 1.5+).
+    expect(tex).toContain('\\tuning(e4 b3 g3 d3 a2 e2)');
   });
 
   it('produces a rest-only body for an empty transcription', () => {
@@ -60,6 +62,35 @@ describe('transcriptionToAlphaTex', () => {
     expect(tex).toContain(':4 r');
     // Track terminator must be present.
     expect(tex.trim().endsWith('.')).toBe(true);
+  });
+
+  // Regression: AT202 "Unexpected 'Ident' token" was thrown by AlphaTab when
+  // a TabNote with NaN/undefined fret or stringIndex slipped through —
+  // template literal `${NaN}.${stringIndex}` produces "NaN.X" which the
+  // parser reads as an identifier where it expected a number. Filter them.
+  it('drops notes with NaN/undefined fret or stringIndex (no AT202)', () => {
+    const goodNote = tn(5, 0, 64, 0);
+    // Cast away type safety to simulate upstream Viterbi corruption.
+    const nanFret = { ...tn(5, 0, 64, 0.5), fret: NaN } as TabNote;
+    const undefString = { ...tn(5, 0, 64, 1.0), stringIndex: undefined as unknown as number } as TabNote;
+    const tex = transcriptionToAlphaTex(
+      baseTranscription([goodNote, nanFret, undefString]),
+    );
+    // None of the bad-data placeholders should leak through.
+    expect(tex).not.toMatch(/NaN/);
+    expect(tex).not.toMatch(/undefined/);
+    // The one valid note still produces output.
+    expect(tex).toMatch(/0\.1/);
+  });
+
+  it('coerces fractional fret/stringIndex to integers', () => {
+    // basic-pitch can produce slightly non-integer pitches; Viterbi may
+    // pass them through as fractional frets. alphaTex would mis-parse
+    // "5.7.6" so we round before emitting.
+    const fractional = { ...tn(5, 0, 64, 0), fret: 5.7 } as TabNote;
+    const tex = transcriptionToAlphaTex(baseTranscription([fractional]));
+    expect(tex).toMatch(/6\.1/); // 5.7 rounds to 6
+    expect(tex).not.toMatch(/5\.7\.1/);
   });
 
   it('terminates tracks with a period on its own line', () => {
