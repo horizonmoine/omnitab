@@ -12,33 +12,28 @@
  *   By forwarding the request through this Vercel function, the PWA's
  *   browser only sees a same-origin POST to `omnitab-henna.vercel.app`,
  *   which never trips the AV's third-party-fetch heuristics. The actual
- *   call to HF Space happens server-side from Vercel's compute, which
- *   has no AV in the loop.
+ *   call to HF Space happens server-side from Vercel's compute, where
+ *   no AV is in the loop.
  *
- * RUNTIME
- *   Node.js (Fluid Compute, default). NOT Edge — the cold-cache path of
- *   /separate-stream takes ~3 minutes (Demucs forward pass) and Edge has
- *   a 25s hard cap that we already learned the hard way is uncircumventable.
- *
- *   Cannot use the (request: Request) => Response shape that the other
- *   /api handlers use on Edge: Vercel's Node.js runtime for raw /api/*.ts
- *   files in a Vite project expects the legacy (req, res) shape from
- *   @vercel/node. Mixing breaks deploys with FUNCTION_INVOCATION_FAILED.
+ * RUNTIME — Node.js (Fluid Compute, the Vite + raw /api/*.ts default).
+ *   NOT Edge: cold-cache /separate-stream takes ~3 minutes (Demucs
+ *   forward pass) and Edge has a 25s hard cap.
  *
  * STREAMING
  *   We forward the multipart body and the WAV response without buffering
- *   either of them in memory. That's important because:
- *     - Request: ~4 MB Opus/m4a/webm uploads. Buffering = pointless RAM hit.
- *     - Response: ~40 MB WAV stem. Buffering would trip Vercel's per-function
- *       memory limit AND make the PWA wait until the entire stem is in RAM
- *       before any byte is dispatched.
+ *   either of them. undici (Node 18+ fetch) accepts a Readable as body
+ *   when duplex is set to 'half'; we then pipe the upstream Web stream
+ *   back via stream/promises.pipeline.
  *
- *   Node 18+'s fetch (undici) accepts a Readable stream as `body` when
- *   `duplex: 'half'` is set. We pipe the upstream Web ReadableStream
- *   back to the client via stream/promises.pipeline → zero-copy.
+ *   The function uses plain Node types (IncomingMessage / ServerResponse)
+ *   instead of @vercel/node's VercelRequest / VercelResponse — that
+ *   package was failing to resolve on Vercel's build for this file
+ *   specifically, leaving /api/demucs-stream as a 404 NOT_FOUND in prod.
+ *   Plain Node types compile against the built-in lib regardless of
+ *   what's in node_modules.
  */
 
-import type { VercelRequest, VercelResponse } from '@vercel/node';
+import type { IncomingMessage, ServerResponse } from 'node:http';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
@@ -50,30 +45,46 @@ const VALID_STEMS = new Set(['vocals', 'drums', 'bass', 'other', 'guitar', 'pian
 const VALID_MODELS = new Set(['htdemucs', 'htdemucs_ft', 'mdx_extra', 'mdx_extra_q']);
 
 // Vercel function config — needs to outlive Demucs's first-cache-miss run
-// (~3 min) but not be open-ended. 240s = 3 min Demucs + a comfortable
-// margin for streaming the 40 MB response back over a slow connection.
+// (~3 min). 240s = 3 min Demucs + a comfortable margin for streaming the
+// 40 MB response back over a slow connection.
 export const config = {
   maxDuration: 240,
 };
 
+// undici (Node 18+ fetch) accepts Readable streams as `body` when the
+// `duplex: 'half'` flag is set. The standard RequestInit type lacked this
+// field until very recently — we extend locally to avoid any directive
+// (like @ts-expect-error) that would mis-fire if/when the upstream type
+// catches up and break the build silently.
+type DuplexRequestInit = RequestInit & { duplex?: 'half' };
+
 export default async function handler(
-  req: VercelRequest,
-  res: VercelResponse,
+  req: IncomingMessage,
+  res: ServerResponse,
 ): Promise<void> {
   if (req.method !== 'POST') {
-    res.status(405).json({ detail: 'POST only' });
+    res.statusCode = 405;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ detail: 'POST only' }));
     return;
   }
 
-  // Validate query params before we waste compute on an upload.
-  const stem = String(req.query.stem ?? 'vocals');
-  const model = String(req.query.model ?? 'htdemucs');
+  // Parse query params from the raw URL — Node's IncomingMessage doesn't
+  // give us a parsed query like Express/Vercel-typed handlers would.
+  const fullUrl = new URL(req.url ?? '/', `https://${req.headers.host ?? 'localhost'}`);
+  const stem = fullUrl.searchParams.get('stem') ?? 'vocals';
+  const model = fullUrl.searchParams.get('model') ?? 'htdemucs';
+
   if (!VALID_STEMS.has(stem)) {
-    res.status(400).json({ detail: `unknown stem '${stem}'` });
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ detail: `unknown stem '${stem}'` }));
     return;
   }
   if (!VALID_MODELS.has(model)) {
-    res.status(400).json({ detail: `unknown model '${model}'` });
+    res.statusCode = 400;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ detail: `unknown model '${model}'` }));
     return;
   }
 
@@ -84,48 +95,44 @@ export default async function handler(
 
   let upstream: Response;
   try {
-    upstream = await fetch(upstreamUrl, {
+    const init: DuplexRequestInit = {
       method: 'POST',
-      // req IS a Node.js IncomingMessage which is a Readable stream.
-      // undici accepts that as `body` when duplex is set.
-      body: req as unknown as ReadableStream<Uint8Array>,
+      // IncomingMessage IS a Readable; undici accepts it as body when
+      // the duplex flag below is set.
+      body: req as unknown as BodyInit,
       headers: {
         // Forward the multipart boundary so HF Space's FastAPI multipart
-        // parser can find the file part. Other client headers (UA,
-        // Accept-Language, etc.) are dropped intentionally — we don't
-        // want to leak the real client identity to HF.
+        // parser can find the file part. Other client headers are dropped
+        // intentionally — we don't want to leak the real client identity.
         'Content-Type':
-          req.headers['content-type'] ?? 'multipart/form-data',
+          (req.headers['content-type'] as string | undefined) ??
+          'multipart/form-data',
       },
-      // Required for streaming request bodies in Node 18+. Without this,
-      // undici waits for the entire body before sending — defeats the
-      // whole point of this proxy.
-      // @ts-expect-error: TS lib doesn't have duplex on RequestInit yet
+      // Required for streaming request bodies in Node 18+ undici.
       duplex: 'half',
-    });
+    };
+    upstream = await fetch(upstreamUrl, init);
   } catch (err) {
-    // Network-level failure reaching HF (sleep, DNS, 5xx upstream).
-    // Surface a clean French error so the PWA toast is readable.
-    res.status(502).json({
-      detail: `Backend Demucs injoignable : ${
-        err instanceof Error ? err.message : String(err)
-      }`,
-    });
+    res.statusCode = 502;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(
+      JSON.stringify({
+        detail: `Backend Demucs injoignable : ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      }),
+    );
     return;
   }
 
   // Mirror the upstream status (so HTTPException 4xx/5xx from FastAPI
   // surfaces correctly to the PWA).
-  res.status(upstream.status);
+  res.statusCode = upstream.status;
 
-  // Forward the headers that matter for stream consumption. Skip
-  // hop-by-hop and security-sensitive ones.
   const ctype = upstream.headers.get('Content-Type') ?? 'application/octet-stream';
   res.setHeader('Content-Type', ctype);
   const cd = upstream.headers.get('Content-Disposition');
   if (cd) res.setHeader('Content-Disposition', cd);
-  // Same-origin so CORS isn't strictly needed, but harmless and helps
-  // when the user opens the URL directly for debugging.
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Cache-Control', 'no-store');
 
@@ -135,15 +142,12 @@ export default async function handler(
   }
 
   // Pipe upstream → client without intermediate buffering. If the client
-  // disconnects mid-stream, pipeline rejects and we propagate the abort
-  // upstream by virtue of the AbortController inside undici (cleaning
-  // up the HF connection).
+  // disconnects, pipeline rejects and undici cancels the upstream fetch.
   try {
     await pipeline(Readable.fromWeb(upstream.body), res);
   } catch (err) {
-    // Client likely disconnected before the response finished. Nothing
-    // useful to do — Vercel will end the function. Log so we can see
-    // it in `vercel logs` if it ever becomes a debugging target.
+    // Client likely disconnected. Nothing useful to do — Vercel ends the
+    // function. Logged so it's visible in `vercel logs`.
     // eslint-disable-next-line no-console
     console.warn('demucs-stream pipeline aborted:', err);
   }
