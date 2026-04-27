@@ -22,6 +22,19 @@ import { HealerOverlay } from './HealerOverlay';
 import { Button, ErrorStrip } from './primitives';
 
 /**
+ * Fix alphaTex strings saved with the old buggy format (parenthesised \tuning,
+ * float tempo). Runs transparently on every string source so IndexedDB tabs
+ * generated before the converter was fixed open cleanly without re-transcribing.
+ */
+function sanitizeAlphaTex(src: string): string {
+  return src
+    // \tuning(E4 B3 …) → \tuning E4 B3 …   (parens are chord syntax, not metadata)
+    .replace(/\\tuning\(([^)]+)\)/g, '\\tuning $1')
+    // \tempo 120.5 → \tempo 120  (alphaTex wants an integer)
+    .replace(/\\tempo\s+(\d+)\.\d+/g, '\\tempo $1');
+}
+
+/**
  * Active setlist context — present when the viewer is showing a tab that's
  * part of a playlist. Drives the Prev/Next bar at the top of the viewer.
  * Owned by App.tsx; we just receive it and render the affordance.
@@ -182,7 +195,7 @@ export function TabViewer({
 
         // Load the source.
         if (typeof source === 'string') {
-          api.tex(source);
+          api.tex(sanitizeAlphaTex(source));
         } else {
           api.load(source);
         }
