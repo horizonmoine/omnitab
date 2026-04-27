@@ -38,7 +38,7 @@ loadSettings()
 
 // Register the service worker. autoUpdate makes new versions take effect on
 // next visit without prompting (matches the PWA plugin config in vite.config).
-registerSW({
+const updateSW = registerSW({
   immediate: true,
   onRegisteredSW(swUrl) {
     console.info(`[OmniTab] service worker registered: ${swUrl}`);
@@ -62,7 +62,10 @@ registerSW({
     console.info('[OmniTab] ready to work offline.');
   },
   onNeedRefresh() {
-    console.info('[OmniTab] new version available — will activate on reload.');
+    // New version detected — reload immediately so users always run the
+    // latest JS without having to close all tabs manually.
+    console.info('[OmniTab] new version available — reloading…');
+    updateSW(true);
   },
 });
 
