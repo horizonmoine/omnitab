@@ -22,16 +22,38 @@ import { HealerOverlay } from './HealerOverlay';
 import { Button, ErrorStrip } from './primitives';
 
 /**
- * Fix alphaTex strings saved with the old buggy format (parenthesised \tuning,
- * float tempo). Runs transparently on every string source so IndexedDB tabs
- * generated before the converter was fixed open cleanly without re-transcribing.
+ * Fix alphaTex strings saved with old buggy formats. Runs on every string
+ * source so IndexedDB tabs open cleanly without re-transcribing.
+ *
+ * Fixes applied:
+ *   1. \tuning(E4 B3 …) → \tuning E4 B3 …  (parens are chord syntax)
+ *   2. \tempo 120.5     → \tempo 120        (must be integer)
+ *   3. NaN.N / undefined.N beats → r        (upstream Viterbi could emit NaN frets)
+ *   4. Chords containing NaN notes → clean  (drop bad notes from chord; unwrap if 1 remains)
  */
 function sanitizeAlphaTex(src: string): string {
-  return src
-    // \tuning(E4 B3 …) → \tuning E4 B3 …   (parens are chord syntax, not metadata)
+  // eslint-disable-next-line no-console
+  console.log('[alphatex-sanitize] input:\n', src);
+
+  const out = src
     .replace(/\\tuning\(([^)]+)\)/g, '\\tuning $1')
-    // \tempo 120.5 → \tempo 120  (alphaTex wants an integer)
-    .replace(/\\tempo\s+(\d+)\.\d+/g, '\\tempo $1');
+    .replace(/\\tempo\s+(\d+)\.\d+/g, '\\tempo $1')
+    // Replace bare bad-fret notes (NaN.3, undefined.3, Infinity.3 …) with rest
+    .replace(/\b(?:NaN|undefined|Infinity|-Infinity)\.\d+\b/g, 'r')
+    // Clean chords: remove bad notes from inside (…)
+    .replace(/\(([^)]+)\)/g, (_match, inner: string) => {
+      const parts = inner
+        .trim()
+        .split(/\s+/)
+        .filter((p) => !/^(?:NaN|undefined|Infinity|-Infinity)\./.test(p));
+      if (parts.length === 0) return 'r';
+      if (parts.length === 1) return parts[0];
+      return `(${parts.join(' ')})`;
+    });
+
+  // eslint-disable-next-line no-console
+  console.log('[alphatex-sanitize] output:\n', out);
+  return out;
 }
 
 /**
