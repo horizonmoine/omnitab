@@ -150,7 +150,12 @@ export async function separateStem(
 
   let url: string;
   if (useProxy) {
-    url = `/api/demucs-stream?stem=${encodeURIComponent(stem)}`;
+    // Routed through `/api/youtube-audio?mode=demucs` because a dedicated
+    // /api/demucs-stream.ts file refused to deploy on Vercel (silent
+    // 404 NOT_FOUND with no build error visible). The youtube-audio
+    // function is a known-good Edge function that does deploy reliably,
+    // so we hitched the Demucs proxy onto it via a mode= query param.
+    url = `/api/youtube-audio?mode=demucs&stem=${encodeURIComponent(stem)}`;
   } else {
     const baseUrl = getBackendUrl();
     if (!baseUrl) throw new Error('Aucun backend Demucs configuré (voir Réglages).');

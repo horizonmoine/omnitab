@@ -87,6 +87,19 @@ const YT_HOST_RE = /(^|\.)((youtube\.com)|(youtu\.be))$/i;
 
 export default async function handler(request: Request): Promise<Response> {
   const url = new URL(request.url);
+
+  // Dispatch by query mode. The default mode (mode=yt or absent) is the
+  // YouTube → MP3 extraction we always had. mode=demucs is a same-origin
+  // proxy to HF Space's /separate-stream — added inline here because a
+  // separate /api/demucs-stream.ts file refused to register on Vercel
+  // (deployed silently as 404 NOT_FOUND while every other Edge function
+  // in this project deploys fine; root cause unknown). Routing both
+  // through this file is messy but ships.
+  const mode = url.searchParams.get('mode') ?? 'yt';
+  if (mode === 'demucs') {
+    return handleDemucsProxy(request);
+  }
+
   const ytUrl = url.searchParams.get('url');
 
   if (!ytUrl) {
@@ -229,6 +242,111 @@ async function tryBackend(
   } finally {
     clearTimeout(timer);
   }
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Demucs proxy (mode=demucs&stem=...)
+// ─────────────────────────────────────────────────────────────────────────
+//
+// Same-origin proxy to HF Space's /separate-stream. PWA POSTs the audio
+// file here as multipart/form-data, we stream it through to HF, stream
+// the WAV response back. Same-origin → bypasses AV/browser-shield
+// software that blocks cross-origin POSTs to *.hf.space in normal modes.
+//
+// 25s Edge cap is fine for cache-HIT calls (sub-second). First-time
+// uploads of a NEW audio file trigger ~3 min Demucs compute on HF and
+// will time out here — for that case the user can run the file once in
+// incognito (direct HF call, no time cap) to populate the HF disk cache,
+// then use normal mode here for the cache-HIT fast path.
+
+const VALID_STEMS = new Set([
+  'vocals',
+  'drums',
+  'bass',
+  'other',
+  'guitar',
+  'piano',
+]);
+const VALID_MODELS = new Set([
+  'htdemucs',
+  'htdemucs_ft',
+  'mdx_extra',
+  'mdx_extra_q',
+]);
+
+// undici (Edge runtime fetch) accepts a Web ReadableStream as `body` only
+// when `duplex: 'half'` is set. RequestInit's TS type may or may not have
+// that field depending on lib version — extend locally.
+type DuplexRequestInit = RequestInit & { duplex?: 'half' };
+
+async function handleDemucsProxy(request: Request): Promise<Response> {
+  if (request.method !== 'POST') {
+    return jsonError(405, 'POST only for mode=demucs');
+  }
+
+  const url = new URL(request.url);
+  const stem = url.searchParams.get('stem') ?? 'vocals';
+  const model = url.searchParams.get('model') ?? 'htdemucs';
+  if (!VALID_STEMS.has(stem)) {
+    return jsonError(400, `unknown stem '${stem}'`);
+  }
+  if (!VALID_MODELS.has(model)) {
+    return jsonError(400, `unknown model '${model}'`);
+  }
+
+  const upstreamUrl =
+    `${HF_SPACE_BASE}/separate-stream` +
+    `?stem=${encodeURIComponent(stem)}` +
+    `&model=${encodeURIComponent(model)}`;
+
+  let upstream: Response;
+  try {
+    const init: DuplexRequestInit = {
+      method: 'POST',
+      body: request.body,
+      headers: {
+        'Content-Type':
+          request.headers.get('Content-Type') ?? 'multipart/form-data',
+      },
+      duplex: 'half',
+    };
+    upstream = await fetch(upstreamUrl, init);
+  } catch (err) {
+    return jsonError(
+      502,
+      `Backend Demucs injoignable : ${
+        err instanceof Error ? err.message : String(err)
+      }`,
+    );
+  }
+
+  if (!upstream.ok) {
+    const detail = await upstream.text().catch(() => '');
+    return new Response(
+      detail || JSON.stringify({ detail: `HF HTTP ${upstream.status}` }),
+      {
+        status: upstream.status,
+        headers: {
+          'Content-Type':
+            upstream.headers.get('Content-Type') ?? 'application/json',
+          'Access-Control-Allow-Origin': '*',
+        },
+      },
+    );
+  }
+
+  return new Response(upstream.body, {
+    status: 200,
+    headers: {
+      'Content-Type': upstream.headers.get('Content-Type') ?? 'audio/wav',
+      'Content-Disposition':
+        upstream.headers.get('Content-Disposition') ??
+        `attachment; filename="${stem}.wav"`,
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Expose-Headers': 'Content-Disposition',
+      'Cache-Control': 'no-store',
+    },
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────
