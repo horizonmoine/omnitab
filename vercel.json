@@ -29,7 +29,20 @@
       ]
     },
     {
-      "source": "/(icon-(192|512)\\.png|favicon\\.svg)",
+      "source": "/icon-:size.png",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=86400, must-revalidate"
+        },
+        {
+          "key": "Access-Control-Allow-Origin",
+          "value": "*"
+        }
+      ]
+    },
+    {
+      "source": "/favicon.svg",
       "headers": [
         {
           "key": "Cache-Control",
