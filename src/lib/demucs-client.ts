@@ -127,66 +127,109 @@ export interface SeparateProgress {
 /**
  * Envoie `file` au backend et récupère le stem demandé sous forme de Blob.
  *
- * C'est l'endpoint `/separate-stream` côté backend — retourne un seul stem
- * en WAV, ce qui économise la bande passante vs. un ZIP complet.
+ * Routing strategy (prod):
+ *   1. Direct HF Space call — no 25-second Edge cap, handles 3+ min computations.
+ *   2. On net::ERR_FAILED (AV/browser-shield blocking *.hf.space cross-origin POSTs):
+ *      fall back to the same-origin Vercel proxy (/api/youtube-audio?mode=demucs).
+ *   3. Proxy may return HTTP 202 "computing" when Demucs takes longer than the
+ *      proxy's cache-race window. The client waits and auto-retries — HF Space
+ *      keeps computing after disconnect, so the retry finds a disk-cache hit.
+ *
+ * In dev (vite dev), Vercel functions are not available, so we hit the
+ * configured backend directly (defaults to http://localhost:8000).
  */
 export async function separateStem(
   file: File | Blob,
   stem: Stem,
   onProgress?: (p: SeparateProgress) => void,
+  _attempt = 0,
 ): Promise<Blob> {
-  // In prod, route through the same-origin Vercel proxy `/api/demucs-stream`.
-  // That proxy forwards the bytes server-side to HF Space, so the user's
-  // browser only sees a request to omnitab-henna.vercel.app — bypassing
-  // antivirus / browser-shield software that intercepts cross-origin POSTs
-  // to less-known domains like *.hf.space and silently fails them with
-  // `net::ERR_FAILED` (only happens in non-incognito modes — those AVs
-  // typically bypass their hooks for InPrivate browsing).
-  //
-  // In dev (`vite dev`), Vercel functions don't run, so we hit the configured
-  // backend directly. Self-hosters running their own /api/* layer can
-  // override the proxy URL via Settings if they want.
-  const useProxy = !import.meta.env.DEV;
+  const MAX_ATTEMPTS = 5;
 
-  let url: string;
-  if (useProxy) {
-    // Routed through `/api/youtube-audio?mode=demucs` because a dedicated
-    // /api/demucs-stream.ts file refused to deploy on Vercel (silent
-    // 404 NOT_FOUND with no build error visible). The youtube-audio
-    // function is a known-good Edge function that does deploy reliably,
-    // so we hitched the Demucs proxy onto it via a mode= query param.
-    url = `/api/youtube-audio?mode=demucs&stem=${encodeURIComponent(stem)}`;
-  } else {
+  // Fresh FormData each attempt — a consumed body can't be re-read.
+  const makeForm = (): FormData => {
+    const f = new FormData();
+    f.append('file', file, 'audio.wav');
+    return f;
+  };
+
+  onProgress?.({ progress: 0.05, status: `Envoi du stem « ${stem} » au backend Demucs…` });
+
+  // ── Prod: try direct HF Space first (no 25-second Edge cap). ─────────────
+  if (!import.meta.env.DEV) {
     const baseUrl = getBackendUrl();
-    if (!baseUrl) throw new Error('Aucun backend Demucs configuré (voir Réglages).');
-    url = `${baseUrl}/separate-stream?stem=${encodeURIComponent(stem)}`;
+    const directUrl = `${baseUrl}/separate-stream?stem=${encodeURIComponent(stem)}`;
+    try {
+      const res = await fetch(directUrl, { method: 'POST', body: makeForm() });
+      if (res.ok) return await _finishBlob(res, stem, onProgress);
+      if (res.status === 202) {
+        return await _waitAndRetry(res, file, stem, onProgress, _attempt, MAX_ATTEMPTS);
+      }
+      const detail = await res.text().catch(() => '');
+      throw new Error(`Demucs a échoué (HTTP ${res.status})${detail ? ` : ${detail}` : ''}`);
+    } catch (err) {
+      // TypeError = net::ERR_FAILED → AV/browser-shield blocking the cross-origin POST.
+      // Any other error (HTTP or logic) is re-thrown immediately.
+      if (!(err instanceof TypeError)) throw err;
+      onProgress?.({ progress: 0.08, status: 'Connexion directe bloquée — essai via le proxy…' });
+    }
   }
 
-  onProgress?.({ progress: 0.05, status: `Envoi au backend Demucs…` });
+  // ── Proxy / dev path. ─────────────────────────────────────────────────────
+  const url = import.meta.env.DEV
+    ? `${getBackendUrl()}/separate-stream?stem=${encodeURIComponent(stem)}`
+    : `/api/youtube-audio?mode=demucs&stem=${encodeURIComponent(stem)}`;
 
-  const form = new FormData();
-  form.append('file', file, 'audio.wav');
+  const res = await fetch(url, { method: 'POST', body: makeForm() });
 
-  const res = await fetch(url, {
-    method: 'POST',
-    body: form,
-  });
-
+  if (res.status === 202) {
+    return await _waitAndRetry(res, file, stem, onProgress, _attempt, MAX_ATTEMPTS);
+  }
   if (!res.ok) {
     const detail = await res.text().catch(() => '');
-    throw new Error(
-      `Demucs a échoué (HTTP ${res.status})${detail ? ` : ${detail}` : ''}`,
-    );
+    throw new Error(`Demucs a échoué (HTTP ${res.status})${detail ? ` : ${detail}` : ''}`);
   }
+  return await _finishBlob(res, stem, onProgress);
+}
 
-  onProgress?.({
-    progress: 0.95,
-    status: `Réception du stem "${stem}"…`,
-  });
-
+async function _finishBlob(
+  res: Response,
+  stem: string,
+  onProgress?: (p: SeparateProgress) => void,
+): Promise<Blob> {
+  onProgress?.({ progress: 0.95, status: `Réception du stem « ${stem} »…` });
   const blob = await res.blob();
   onProgress?.({ progress: 1, status: 'Stem reçu.' });
   return blob;
+}
+
+async function _waitAndRetry(
+  res202: Response,
+  file: File | Blob,
+  stem: Stem,
+  onProgress: ((p: SeparateProgress) => void) | undefined,
+  attempt: number,
+  maxAttempts: number,
+): Promise<Blob> {
+  if (attempt >= maxAttempts) {
+    throw new Error(
+      `Demucs n'a pas répondu après ${maxAttempts} tentatives. ` +
+      `Le traitement est trop long pour ce fichier — réessaye dans 5 minutes.`,
+    );
+  }
+  const body = await res202.json().catch(() => ({})) as { retryAfterSeconds?: number };
+  const waitSec = body.retryAfterSeconds ?? 120;
+
+  // Countdown in 10-second steps so the UI stays alive.
+  for (let elapsed = 0; elapsed < waitSec; elapsed += 10) {
+    const remaining = waitSec - elapsed;
+    onProgress?.({
+      progress: 0.1,
+      status: `⏳ Demucs traite le fichier en arrière-plan (encore ~${remaining}s)…`,
+    });
+    await new Promise<void>((r) => setTimeout(r, 10_000));
+  }
+  return separateStem(file, stem, onProgress, attempt + 1);
 }
 
 /**

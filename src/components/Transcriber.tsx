@@ -442,6 +442,25 @@ export function Transcriber({
     setProgress(0);
 
     try {
+      // Step 0 — confirm the backend is still awake before we start the heavy
+      // Demucs work. The initial probe at page-load can be stale (Space sleeps
+      // after 48h; the user may have left the tab open for hours). wakeBackend()
+      // polls /health for up to 90s so we can display elapsed time.
+      setProgress(0.01);
+      setStatus('⏳ Vérification du backend Demucs…');
+      const freshHealth = await wakeBackend((elapsedMs) => {
+        setStatus(`⏳ Réveil du backend Demucs (${Math.round(elapsedMs / 1000)}s)…`);
+      }, 90_000);
+      if (!freshHealth) {
+        throw new Error(
+          "Le backend Demucs ne répond pas (délai 90 s dépassé). " +
+          "Clique sur « Réveiller le backend » dans ce panneau ou vérifie l'URL dans les Réglages.",
+        );
+      }
+      setBackend(freshHealth);
+      setProgress(0.02);
+      setStatus('✅ Backend prêt.');
+
       let inputBlob: Blob = file!;
       let inputLabel = label;
       // Capture the YT URL before we clear the input — we'll persist it as
@@ -473,7 +492,11 @@ export function Transcriber({
         const baseProgress = 0.15 + (i / stemTypes.length) * 0.55;
         setProgress(baseProgress);
         setStatus(`🐍 Demucs — stem ${stem} (${i + 1}/${stemTypes.length})…`);
-        const blob = await separateStem(inputBlob, stem);
+        const blob = await separateStem(inputBlob, stem, ({ status: s }) => {
+          // Surface the countdown messages (e.g. "⏳ Demucs traite le fichier…")
+          // directly into the pipeline status bar so the user knows it's not stuck.
+          setStatus(s);
+        });
         stemBlobs[stem] = blob;
         const durationEstimate = blob.size / 44100;
         await saveStem(songTitle, stem, blob, durationEstimate);

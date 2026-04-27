@@ -248,36 +248,31 @@ async function tryBackend(
 // Demucs proxy (mode=demucs&stem=...)
 // ─────────────────────────────────────────────────────────────────────────
 //
-// Same-origin proxy to HF Space's /separate-stream. PWA POSTs the audio
-// file here as multipart/form-data, we stream it through to HF, stream
-// the WAV response back. Same-origin → bypasses AV/browser-shield
-// software that blocks cross-origin POSTs to *.hf.space in normal modes.
+// Same-origin proxy to HF Space's /separate-stream. Exists to bypass AV /
+// browser-shield software that blocks cross-origin POSTs to *.hf.space.
 //
-// 25s Edge cap is fine for cache-HIT calls (sub-second). First-time
-// uploads of a NEW audio file trigger ~3 min Demucs compute on HF and
-// will time out here — for that case the user can run the file once in
-// incognito (direct HF call, no time cap) to populate the HF disk cache,
-// then use normal mode here for the cache-HIT fast path.
+// Protocol for long computations (new files, ~3 min on CPU):
+//   1. Buffer the full request body (ensures HF receives a complete payload).
+//   2. Forward to HF. Race against DEMUCS_CACHE_RACE_MS (cache hits are <1s).
+//   3. Cache hit  → stream WAV back with HTTP 200.
+//   4. Timeout    → return HTTP 202 {status:"computing", retryAfterSeconds}.
+//      HF Space's sync handler keeps running after we close the connection;
+//      the full body was already forwarded, so it computes all 4 stems to disk.
+//   5. Client retries after retryAfterSeconds → cache hit → instant 200.
+//
+// Body buffering note: `await request.arrayBuffer()` must complete before
+// Vercel's 25s Edge cap. For typical MP3 files (3-10 MB) on broadband this
+// takes 1-5s. Very large WAV files on slow connections may still time out
+// during buffering — those users should use the direct HF path instead
+// (demucs-client.ts tries direct first, proxy only as AV fallback).
 
-const VALID_STEMS = new Set([
-  'vocals',
-  'drums',
-  'bass',
-  'other',
-  'guitar',
-  'piano',
-]);
-const VALID_MODELS = new Set([
-  'htdemucs',
-  'htdemucs_ft',
-  'mdx_extra',
-  'mdx_extra_q',
-]);
+const VALID_STEMS = new Set(['vocals', 'drums', 'bass', 'other', 'guitar', 'piano']);
+const VALID_MODELS = new Set(['htdemucs', 'htdemucs_ft', 'mdx_extra', 'mdx_extra_q']);
 
-// undici (Edge runtime fetch) accepts a Web ReadableStream as `body` only
-// when `duplex: 'half'` is set. RequestInit's TS type may or may not have
-// that field depending on lib version — extend locally.
-type DuplexRequestInit = RequestInit & { duplex?: 'half' };
+// How long to wait for an HF response before returning 202. Cache hits come
+// back in <1s; anything longer means Demucs is running. 6s gives comfortable
+// margin for a slow-but-warm Space without burning much of the 25s Edge cap.
+const DEMUCS_CACHE_RACE_MS = 6_000;
 
 async function handleDemucsProxy(request: Request): Promise<Response> {
   if (request.method !== 'POST') {
@@ -287,39 +282,74 @@ async function handleDemucsProxy(request: Request): Promise<Response> {
   const url = new URL(request.url);
   const stem = url.searchParams.get('stem') ?? 'vocals';
   const model = url.searchParams.get('model') ?? 'htdemucs';
-  if (!VALID_STEMS.has(stem)) {
-    return jsonError(400, `unknown stem '${stem}'`);
+  if (!VALID_STEMS.has(stem)) return jsonError(400, `unknown stem '${stem}'`);
+  if (!VALID_MODELS.has(model)) return jsonError(400, `unknown model '${model}'`);
+
+  // Buffer the full body so HF receives a complete multipart payload even
+  // when we abort the upstream fetch after the soft timeout.
+  let bodyBuffer: ArrayBuffer;
+  try {
+    bodyBuffer = await request.arrayBuffer();
+  } catch (err) {
+    return jsonError(400, `Lecture du corps impossible : ${(err as Error).message}`);
   }
-  if (!VALID_MODELS.has(model)) {
-    return jsonError(400, `unknown model '${model}'`);
+  if (bodyBuffer.byteLength === 0) {
+    return jsonError(400, 'Corps vide — aucun fichier audio reçu.');
   }
 
+  const contentType = request.headers.get('Content-Type') ?? 'multipart/form-data';
   const upstreamUrl =
     `${HF_SPACE_BASE}/separate-stream` +
     `?stem=${encodeURIComponent(stem)}` +
     `&model=${encodeURIComponent(model)}`;
 
-  let upstream: Response;
+  const fetchCtrl = new AbortController();
+  const upstreamPromise = fetch(upstreamUrl, {
+    method: 'POST',
+    body: bodyBuffer,
+    headers: { 'Content-Type': contentType },
+    signal: fetchCtrl.signal,
+  }).then((r) => ({ kind: 'response' as const, r }));
+
+  // Race: short window catches cache hits; anything slower means HF is computing.
+  let race:
+    | { kind: 'response'; r: Response }
+    | { kind: 'timeout' };
   try {
-    const init: DuplexRequestInit = {
-      method: 'POST',
-      body: request.body,
-      headers: {
-        'Content-Type':
-          request.headers.get('Content-Type') ?? 'multipart/form-data',
-      },
-      duplex: 'half',
-    };
-    upstream = await fetch(upstreamUrl, init);
+    race = await Promise.race([
+      upstreamPromise,
+      new Promise<{ kind: 'timeout' }>((resolve) =>
+        setTimeout(() => resolve({ kind: 'timeout' }), DEMUCS_CACHE_RACE_MS),
+      ),
+    ]);
   } catch (err) {
-    return jsonError(
-      502,
-      `Backend Demucs injoignable : ${
-        err instanceof Error ? err.message : String(err)
-      }`,
+    fetchCtrl.abort();
+    return jsonError(502, `Backend Demucs injoignable : ${(err as Error).message}`);
+  }
+
+  if (race.kind === 'timeout') {
+    // HF is computing. Abort our connection — HF keeps running (sync handler
+    // ignores client disconnect). Client retries in retryAfterSeconds.
+    fetchCtrl.abort();
+    return new Response(
+      JSON.stringify({
+        status: 'computing',
+        message:
+          'Demucs traite votre fichier en arrière-plan. Réessayez dans ~2 minutes.',
+        retryAfterSeconds: 120,
+      }),
+      {
+        status: 202,
+        headers: {
+          'Content-Type': 'application/json',
+          'Access-Control-Allow-Origin': '*',
+          'Retry-After': '120',
+        },
+      },
     );
   }
 
+  const upstream = race.r;
   if (!upstream.ok) {
     const detail = await upstream.text().catch(() => '');
     return new Response(
@@ -327,8 +357,7 @@ async function handleDemucsProxy(request: Request): Promise<Response> {
       {
         status: upstream.status,
         headers: {
-          'Content-Type':
-            upstream.headers.get('Content-Type') ?? 'application/json',
+          'Content-Type': upstream.headers.get('Content-Type') ?? 'application/json',
           'Access-Control-Allow-Origin': '*',
         },
       },
