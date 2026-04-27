@@ -54,7 +54,7 @@ describe('transcriptionToAlphaTex', () => {
     // Standard is E2 A2 D3 G3 B3 E4. alphaTex wants high → low: E4 B3 G3 D3 A2 E2.
     // Modern alphaTex requires metadata args in parentheses (warning AT301
     // otherwise — the parser was tightened in AlphaTab 1.5+).
-    expect(tex).toContain('\\tuning(e4 b3 g3 d3 a2 e2)');
+    expect(tex).toContain('\\tuning (e4 b3 g3 d3 a2 e2)');
   });
 
   it('produces a rest-only body for an empty transcription', () => {

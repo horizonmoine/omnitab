@@ -6,7 +6,7 @@
  *   \title "Song"                 Song title
  *   \subtitle "Artist"             Artist / subtitle
  *   \tempo 120                    BPM
- *   \tuning E4 B3 G3 D3 A2 E2     Tuning (high → low, note names)
+ *   \tuning (E4 B3 G3 D3 A2 E2)   Tuning (high → low, note names in parens)
  *   \track "Guitar"               Track header
  *   .                             Separates tracks
  *   :4 3.3 5.3 7.3                Quarter notes on string 3, frets 3/5/7
@@ -112,7 +112,7 @@ export function transcriptionToAlphaTex(
   lines.push(`\\title "${escapeAlphaTex(title)}"`);
   lines.push(`\\subtitle "${escapeAlphaTex(artist)}"`);
   lines.push(`\\tempo ${Math.round(tempoBpm)}`);
-  lines.push(`\\tuning ${tuningStr}`);
+  lines.push(`\\tuning (${tuningStr})`);
   lines.push(`\\track "Guitar"`);
   lines.push('');
 
