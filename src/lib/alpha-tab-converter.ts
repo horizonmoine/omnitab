@@ -111,10 +111,8 @@ export function transcriptionToAlphaTex(
   const lines: string[] = [];
   lines.push(`\\title "${escapeAlphaTex(title)}"`);
   lines.push(`\\subtitle "${escapeAlphaTex(artist)}"`);
-  lines.push(`\\tempo ${tempoBpm}`);
-  // Modern alphaTex requires metadata args in parentheses (warning AT301
-  // otherwise — and on some metadata, hard error).
-  lines.push(`\\tuning(${tuningStr})`);
+  lines.push(`\\tempo ${Math.round(tempoBpm)}`);
+  lines.push(`\\tuning ${tuningStr}`);
   lines.push(`\\track "Guitar"`);
   lines.push('');
 
