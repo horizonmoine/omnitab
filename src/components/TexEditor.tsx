@@ -28,7 +28,7 @@ interface TexEditorProps {
   onTabReady: (alphaTex: string, title: string) => void;
 }
 
-const CDN = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.5.0/dist';
+const CDN = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.2/dist';
 
 /**
  * Starter templates. To add your own, push an object with a unique `id`,
