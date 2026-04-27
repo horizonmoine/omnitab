@@ -183,7 +183,21 @@ export function transcriptionToAlphaTex(
   }
   lines.push('.');
 
-  return lines.join('\n');
+  const result = lines.join('\n');
+
+  // Debug aid: emit the generated alphaTex to the console so that when
+  // AlphaTab rejects it (AT202 etc), we can inspect what was actually
+  // produced. Cheap — runs once per pipeline, not per beat. Keep around
+  // until the converter is bullet-proof against every basic-pitch output.
+  // eslint-disable-next-line no-console
+  console.log(
+    '[alphatex] generated source (%d notes → %d beats):\n%s',
+    notes.length,
+    beats.length,
+    result,
+  );
+
+  return result;
 }
 
 /**
