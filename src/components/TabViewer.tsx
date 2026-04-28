@@ -106,7 +106,7 @@ interface TabViewerProps {
   onSetlistExit?: () => void;
 }
 
-const CDN = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.8.2/dist';
+const CDN = 'https://cdn.jsdelivr.net/npm/@coderline/alphatab@1.5.0/dist';
 
 interface TrackInfo {
   index: number;
