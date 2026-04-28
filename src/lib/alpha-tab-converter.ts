@@ -114,8 +114,8 @@ export function transcriptionToAlphaTex(
   lines.push(`\\tempo ${Math.round(tempoBpm)}`);
   lines.push(`\\tuning (${tuningStr})`);
   lines.push(`\\track "Guitar"`);
+  lines.push('.');
   lines.push('');
-
   // Drop any malformed notes BEFORE the chord-grouping pass — a single bad
   // note in a chord would corrupt the entire chord output and AlphaTab
   // would reject the whole file.
@@ -179,8 +179,6 @@ export function transcriptionToAlphaTex(
   for (let i = 0; i < beats.length; i += CHUNK) {
     lines.push(beats.slice(i, i + CHUNK).join(' '));
   }
-  lines.push('.');
-
   const result = lines.join('\n');
 
   // Debug aid: emit the generated alphaTex to the console so that when
