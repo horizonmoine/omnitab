@@ -14,7 +14,7 @@
     "gen:icons": "node scripts/generate-icons.mjs"
   },
   "dependencies": {
-    "@coderline/alphatab": "^1.5.0",
+    "@coderline/alphatab": "1.5.0",
     "@spotify/basic-pitch": "^1.0.1",
     "dexie": "^4.0.10",
     "dexie-react-hooks": "^1.1.7",
