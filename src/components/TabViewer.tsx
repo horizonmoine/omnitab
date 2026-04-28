@@ -38,6 +38,9 @@ function sanitizeAlphaTex(src: string): string {
 
   let out = src;
 
+  // AlphaTab 1.5.0 does not support \track. Remove it if present.
+  out = out.replace(/\\track\s+"[^"]+"\s*\n/g, '');
+
   // AlphaTab 1.5.0 requires no parentheses around tuning strings.
   // We used to add them for 1.8.2, but we reverted to 1.5.0.
   out = out.replace(/\\tuning\s*\(([^)]+)\)/g, '\\tuning $1');

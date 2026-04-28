@@ -113,7 +113,7 @@ export function transcriptionToAlphaTex(
   lines.push(`\\subtitle "${escapeAlphaTex(artist)}"`);
   lines.push(`\\tempo ${Math.round(tempoBpm)}`);
   lines.push(`\\tuning ${tuningStr}`);
-  lines.push(`\\track "Guitar"`);
+
   lines.push('.');
   lines.push('');
   // Drop any malformed notes BEFORE the chord-grouping pass — a single bad
