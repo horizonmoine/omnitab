@@ -112,7 +112,7 @@ export function transcriptionToAlphaTex(
   lines.push(`\\title "${escapeAlphaTex(title)}"`);
   lines.push(`\\subtitle "${escapeAlphaTex(artist)}"`);
   lines.push(`\\tempo ${Math.round(tempoBpm)}`);
-  lines.push(`\\tuning (${tuningStr})`);
+  lines.push(`\\tuning ${tuningStr}`);
   lines.push(`\\track "Guitar"`);
   lines.push('.');
   lines.push('');

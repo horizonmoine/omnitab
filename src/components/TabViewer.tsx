@@ -38,16 +38,9 @@ function sanitizeAlphaTex(src: string): string {
 
   let out = src;
 
-  // 1a. Normalise \tuning(…) → \tuning (…) (add space if missing).
-  out = out.replace(/\\tuning\(([^)]+)\)/g, '\\tuning ($1)');
-
-  // 1b. Wrap bare \tuning E4 B3 G3 D3 A2 E2 → \tuning (E4 B3 G3 D3 A2 E2).
-  //     Match \tuning followed by space + note names (letter + optional # + digit)
-  //     that are NOT already inside parentheses.
-  out = out.replace(
-    /\\tuning\s+(?!\()([A-Ga-g][#b]?\d(?:\s+[A-Ga-g][#b]?\d)*)/g,
-    '\\tuning ($1)',
-  );
+  // AlphaTab 1.5.0 requires no parentheses around tuning strings.
+  // We used to add them for 1.8.2, but we reverted to 1.5.0.
+  out = out.replace(/\\tuning\s*\(([^)]+)\)/g, '\\tuning $1');
 
   // 2. Tempo must be integer.
   out = out.replace(/\\tempo\s+(\d+)\.\d+/g, '\\tempo $1');
