@@ -47,3 +47,12 @@ extract.cjs
 test_api.json
 songsterr.html
 songsterr_data.json
+
+.vercel
+
+# Scratch and local test files
+songsterr_test.html
+test-alphatab.js
+test-import.cjs
+test.html
+

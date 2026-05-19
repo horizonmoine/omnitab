@@ -1,12 +1,12 @@
 name: CI
 
-# Trigger on every push and PR against main. Forks get automatic runs
+# Trigger on every push and PR against the active default branches. Forks get automatic runs
 # via pull_request, so we don't need to mirror on pull_request_target.
 on:
   push:
-    branches: [main]
+    branches: [main, master]
   pull_request:
-    branches: [main]
+    branches: [main, master]
 
 # If a new commit lands on the same ref, cancel the older run. Saves CI
 # minutes when rebasing/force-pushing a PR branch mid-review.

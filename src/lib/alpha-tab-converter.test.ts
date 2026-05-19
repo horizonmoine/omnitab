@@ -36,7 +36,7 @@ const baseTranscription = (notes: TabNote[]): Transcription => ({
 });
 
 describe('transcriptionToAlphaTex', () => {
-  it('emits header lines with title, subtitle, tempo, tuning, track', () => {
+  it('emits header lines with title, subtitle, tempo, and tuning', () => {
     const tex = transcriptionToAlphaTex(
       baseTranscription([tn(5, 0, 64, 0)]),
       'My Song',
@@ -46,15 +46,14 @@ describe('transcriptionToAlphaTex', () => {
     expect(tex).toContain('\\subtitle "My Band"');
     expect(tex).toContain('\\tempo 120');
     expect(tex).toContain('\\tuning');
-    expect(tex).toContain('\\track "Guitar"');
+    expect(tex).not.toContain('\\track');
   });
 
-  it('emits standard tuning in high → low order, wrapped in parens', () => {
+  it('emits standard tuning in high-to-low order without parens', () => {
     const tex = transcriptionToAlphaTex(baseTranscription([tn(5, 0, 64, 0)]));
     // Standard is E2 A2 D3 G3 B3 E4. alphaTex wants high → low: E4 B3 G3 D3 A2 E2.
-    // Modern alphaTex requires metadata args in parentheses (warning AT301
-    // otherwise — the parser was tightened in AlphaTab 1.5+).
-    expect(tex).toContain('\\tuning (e4 b3 g3 d3 a2 e2)');
+    // OmniTab is pinned to AlphaTab 1.5.0, where tuning args must not be wrapped.
+    expect(tex).toContain('\\tuning e4 b3 g3 d3 a2 e2');
   });
 
   it('produces a rest-only body for an empty transcription', () => {
@@ -93,12 +92,11 @@ describe('transcriptionToAlphaTex', () => {
     expect(tex).not.toMatch(/5\.7\.1/);
   });
 
-  it('terminates tracks with a period on its own line', () => {
+  it('separates metadata from beats with a period on its own line', () => {
     const tex = transcriptionToAlphaTex(
       baseTranscription([tn(5, 0, 64, 0), tn(5, 2, 66, 0.5)]),
     );
-    // alphaTex requires a trailing "." to close the track block.
-    expect(tex.trim().endsWith('.')).toBe(true);
+    expect(tex.split('\n')).toContain('.');
   });
 
   it('converts internal stringIndex 0 (low E) to alphaTex string 6', () => {

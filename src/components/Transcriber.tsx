@@ -17,8 +17,8 @@
  *       Une seule guitare joue la mélodie chantée + le rythme/basse.
  *
  * Les deux modes peuvent optionnellement pré-traiter l'audio avec Demucs
- * (si le backend local est joignable) pour isoler respectivement le stem
- * guitare ou le stem vocal avant la transcription.
+ * (si le backend local est joignable) pour utiliser respectivement le stem
+ * "other" (guitare/piano avec htdemucs) ou le stem vocal avant la transcription.
  */
 
 import { useEffect, useState } from 'react';
@@ -266,7 +266,7 @@ export function Transcriber({
       // Étape 1 : pré-traitement Demucs (optionnel).
       let audioSource: File | Blob = file;
       if (useDemucs && backend) {
-        const wantedStem = mode === 'guitar' ? 'guitar' : 'vocals';
+        const wantedStem = mode === 'guitar' ? 'other' : 'vocals';
         setStatus(`🐍 Demucs : isolation du stem "${wantedStem}"…`);
         try {
           audioSource = await separateStem(file, wantedStem, (p) => {
@@ -887,7 +887,7 @@ export function Transcriber({
             <div className="font-bold text-amp-text mb-0.5">
               🐍 Pré-traiter avec Demucs{' '}
               {mode === 'guitar'
-                ? '(isoler le stem guitare)'
+                ? '(utiliser le stem other guitare/piano)'
                 : '(isoler la voix)'}
             </div>
             <div className="text-amp-muted">

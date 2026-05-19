@@ -20,64 +20,9 @@ import { useTabHealer } from '../hooks/useTabHealer';
 import { useStemSync } from '../hooks/useStemSync';
 import { HealerOverlay } from './HealerOverlay';
 import { Button, ErrorStrip } from './primitives';
+import { sanitizeAlphaTex } from '../lib/alphatex-sanitize';
 
-/**
- * Fix alphaTex strings saved with old buggy formats. Runs on every string
- * source so IndexedDB tabs open cleanly without re-transcribing.
- *
- * Fixes applied:
- *   1. \tuning E4 B3 …  → \tuning (E4 B3 …)  (parens REQUIRED by AlphaTab ≥1.5)
- *      \tuning(E4 B3 …) → \tuning (E4 B3 …)  (normalise spacing)
- *   2. \tempo 120.5     → \tempo 120          (must be integer)
- *   3. NaN.N / undefined.N beats → r          (upstream Viterbi could emit NaN frets)
- *   4. Chords containing NaN notes → clean    (drop bad notes from chord; unwrap if 1 remains)
- */
-function sanitizeAlphaTex(src: string): string {
-  // eslint-disable-next-line no-console
-  console.log('[alphatex-sanitize] input:\n', src);
-
-  let out = src;
-
-  // AlphaTab 1.5.0 does not support \track. Remove it if present.
-  out = out.replace(/\\track[^\n\r]*/g, '');
-
-  // AlphaTab 1.5.0 requires no parentheses around tuning strings.
-  // We used to add them for 1.8.2, but we reverted to 1.5.0.
-  out = out.replace(/\\tuning\s*\(([^)]+)\)/g, '\\tuning $1');
-
-  // 2. Tempo must be integer.
-  out = out.replace(/\\tempo\s+(\d+)\.\d+/g, '\\tempo $1');
-
-  // 3. Replace bare bad-fret notes (NaN.3, undefined.3, Infinity.3 …) with rest.
-  out = out.replace(/\b(?:NaN|undefined|Infinity|-Infinity)\.\d+\b/g, 'r');
-
-  // 4. Clean chords: remove bad notes from inside (…).
-  //    We only process parenthesised groups that appear AFTER the metadata header
-  //    (i.e. after a line starting with a beat `:` or note digit). To avoid
-  //    corrupting \tuning (...) we skip parens on lines that start with `\`.
-  out = out.replace(/\(([^)]+)\)/g, (match, inner: string, offset: number) => {
-    // Check if this paren group is part of a metadata directive (e.g. \tuning).
-    // Look backwards from the match to find if `\tuning` (or another \ command)
-    // immediately precedes it.
-    const before = out.slice(Math.max(0, offset - 20), offset).trimEnd();
-    if (/\\[a-zA-Z]+$/.test(before)) {
-      // This is a metadata argument — leave it intact.
-      return match;
-    }
-
-    const parts = inner
-      .trim()
-      .split(/\s+/)
-      .filter((p) => !/^(?:NaN|undefined|Infinity|-Infinity)\./.test(p));
-    if (parts.length === 0) return 'r';
-    if (parts.length === 1) return parts[0];
-    return `(${parts.join(' ')})`;
-  });
-
-  // eslint-disable-next-line no-console
-  console.log('[alphatex-sanitize] output:\n', out);
-  return out;
-}
+// Sanitization lives in ../lib/alphatex-sanitize.ts so it can be tested.
 
 /**
  * Active setlist context — present when the viewer is showing a tab that's
@@ -238,7 +183,8 @@ export function TabViewer({
           setIsLoading(false);
         });
 
-        // Load the source.
+        // Load the source. Guitar Pro files must stay binary; only text
+        // sources go through alphaTex sanitization.
         if (typeof source === 'string') {
           api.tex(sanitizeAlphaTex(source));
         } else {
